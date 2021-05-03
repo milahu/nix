@@ -6,9 +6,11 @@ const cp = require('child_process');
 const fs = require('fs');
 
 const printResult = 0;
-const writeResult = 1;
+const writeResult = 0;
 const showTodoImplement = 1;
 const inputFile = '/nix/store/v0xwj556c69yppjzylz2diqk66vliswb-nixos-20.09.3857.b2a189a8618/nixos/nixpkgs/pkgs/top-level/all-packages.nix';
+const showHeaders = 0;
+const showJsonSize = 1;
 
 /*
 const showJson = 1;
@@ -16,9 +18,9 @@ const showJsonArrays = 1;
 const showJsonNumtypes = 1;
 const showJsonArraysFmt = 1;
 */
-const outputFormatList = ['json', 'json-numtypes', 'json-arrays', 'json-arrays-fmt'];
+const outputFormatList = process.argv[2] ? [process.argv[2]] : ['json', 'json-numtypes', 'json-arrays', 'json-arrays-fmt'];
 
-const numRounds = 10; // benchmark samples
+const numRounds = 1; // benchmark samples
 const validateSyntax = 0;
 
 var execOptions = { encoding: 'utf8', maxBuffer: 1/0 };
@@ -36,7 +38,7 @@ function dt(t1, t2, label) {
   var dtSec = t2[0] - t1[0];
   var dtNsec = t2[1] - t1[1];
   var dt = (dtSec + dtNsec*1E-9);
-  console.log(`${outputFormat.padEnd(maxLen.format, ' ')} ${label.padEnd(maxLen.label, ' ')} ${dt.toFixed(9)} sec`);
+  //console.log(`${outputFormat.padEnd(maxLen.format, ' ')} ${label.padEnd(maxLen.label, ' ')} ${dt.toFixed(9)} sec`);
   (outputFormat in dtObj) || (dtObj[outputFormat] = []);
   dtObj[outputFormat].push(dt);
 }
@@ -392,9 +394,19 @@ const handlerFn = {
   'json-numtypes': walkJsonNumtypes,
 };
 
+const labelList = ['gen', 'parse', 'walk', 'sum'];
+
+if (showHeaders) {
+console.log(outputFormatList.map(outputFormat => outputFormat.padEnd(29, ' ')).join('   '));
+console.log(outputFormatList.map(outputFormat => labelList.map(l => l.padEnd(7, ' ')).join(' ')).join(' ') + ' round');
+}
+
+var dtObjHistory = [];
+var stObjHistory = [];
+
 for (let benchRound = 1; benchRound <= numRounds; benchRound++) {
 
-console.log(`\nbenchmark round ${benchRound}\n`)
+//console.log(`\nbenchmark round ${benchRound}\n`)
 
 dtObj = {};
 stObj = {};
@@ -404,6 +416,7 @@ for (let formatId = 0; formatId < outputFormatList.length; formatId++) {
 
   var t1 = process.hrtime();
   var json = cp.execSync(`./nix-instantiate --parse --${outputFormat} ${inputFile}`, execOptions);
+  if (showJsonSize) console.log(`${outputFormat}: json size = ${json.length} bytes`)
   var t2 = process.hrtime();
   dt(t1, t2, `generate`);
   
@@ -425,17 +438,45 @@ for (let formatId = 0; formatId < outputFormatList.length; formatId++) {
     if (validateSyntax) cp.execSync(`./nix-instantiate --parse ${of}`, { stdio: 'inherit' });
   }
   
-  st();
+  //st();
+  /*
   console.log();
   if (outputFormat != 'json') {
     console.log(`time of json vs ${outputFormat}: +${((stObj['json'] / stObj[outputFormat] - 1)*100).toFixed(1)} %`)
     console.log(`time of ${outputFormat} vs json: -${((1 - stObj[outputFormat] / stObj['json'])*100).toFixed(1)} %`)
     console.log();
   }
+  */
 
 } // loop formats
+
+console.log(outputFormatList.map(outputFormat => {
+  var dtSum = dtObj[outputFormat].reduce((sum, dt) => sum + dt, 0).toFixed(3);
+  return dtObj[outputFormat].map(dt => dt.toFixed(3)).join(' + ') + ' = ' + dtSum;
+}).join('   ') + ((numRounds == 1) ? '' : ('   ' + benchRound)));
+
+
+
+dtObjHistory.push(dtObj);
+stObjHistory.push(stObj);
+
 } // loop rounds
 
+if (numRounds > 1) {
+console.log('\naverage:');
+console.log(labelList.map(l => l.padEnd(7, ' ')).join(' '));
+console.log(outputFormatList.map(outputFormat => {
+  var dtSum = dtObjHistory.map(dtObj => dtObj[outputFormat].reduce((sum, dt) => sum + dt, 0)).reduce((sum, val) => sum + val, 0) / dtObjHistory.length;
+  return (dtObj[outputFormat]
+    .map((_, labelIdx) => (
+      dtObjHistory
+      .map(dtObj => dtObj[outputFormat][labelIdx])
+      .reduce((sum, val) => sum + val, 0)
+      / dtObjHistory.length
+    ).toFixed(3))
+  .join(' + ') + ' = ' + dtSum.toFixed(3) + ' @ ' + outputFormat);
+}).join('\n'));
+}
 
 
 // low-res timer
@@ -447,4 +488,7 @@ var dt = t2 - t1;
 console.log(`${outputFormat.padEnd(12, ' ')} JSON.parse: dt = ${dt / 1000} sec`)
 */
 
-Object.keys(filesWritten).forEach(of => console.log(`done ${of}`));
+if (writeResult) {
+console.log('\ndone files:');
+Object.keys(filesWritten).forEach(of => console.log(of));
+}
