@@ -91,6 +91,11 @@ void migrateCASchema(SQLite& db, Path schemaPath, AutoCloseFD& lockFd)
 
         if (!lockFile(lockFd.get(), ltWrite, false)) {
             printInfo("waiting for exclusive access to the Nix store for ca drvs...");
+            /*
+                FIXME should not be locked. who owns the lock?
+
+                lockFd = globalLock = /nix/var/nix/db/big-lock
+            */
             lockFile(lockFd.get(), ltWrite, true);
         }
 
@@ -266,10 +271,12 @@ LocalStore::LocalStore(const Params & params)
     Path globalLockPath = dbDir + "/big-lock";
     globalLock = openLockFile(globalLockPath.c_str(), true);
 
+    printInfo("local-store.cc 274: globalLock: acquiring lock: ltRead");
     if (!lockFile(globalLock.get(), ltRead, false)) {
-        printInfo("waiting for the big Nix store lock...");
+        printInfo("local-store.cc 274: globalLock: waiting for the big Nix store lock...");
         lockFile(globalLock.get(), ltRead, true);
     }
+    printInfo("local-store.cc 274: globalLock: acquired the big Nix store lock");
 
     /* Check the current database schema and if necessary do an
        upgrade.  */
@@ -297,10 +304,12 @@ LocalStore::LocalStore(const Params & params)
                 "which is no longer supported. To convert to the new format,\n"
                 "please upgrade Nix to version 1.11 first.");
 
+        printInfo("local-store.cc 307: globalLock: acquiring lock: ltWrite");
         if (!lockFile(globalLock.get(), ltWrite, false)) {
-            printInfo("waiting for exclusive access to the Nix store...");
+            printInfo("local-store.cc 307: globalLock: waiting for exclusive access to the Nix store...");
             lockFile(globalLock.get(), ltWrite, true);
         }
+        printInfo("local-store.cc 307: globalLock: acquired exclusive access to the Nix store");
 
         /* Get the schema version again, because another process may
            have performed the upgrade already. */
@@ -331,7 +340,9 @@ LocalStore::LocalStore(const Params & params)
 
         writeFile(schemaPath, (format("%1%") % nixSchemaVersion).str(), 0666, true);
 
+        printInfo("local-store.cc 343: globalLock: acquiring lock: ltRead");
         lockFile(globalLock.get(), ltRead, true);
+        printInfo("local-store.cc 343: globalLock: acquired lock: ltRead");
     }
 
     else openDB(*state, false);
