@@ -90,7 +90,9 @@ void migrateCASchema(SQLite& db, Path schemaPath, AutoCloseFD& lockFd)
         }
 
         if (!lockFile(lockFd.get(), ltWrite, false)) {
-            printInfo("waiting for exclusive access to the Nix store for ca drvs...");
+            printInfo("local-store.cc 90: calling system: lsof /nix/var/nix/db/big-lock");
+            system("lsof /nix/var/nix/db/big-lock");
+            printInfo("local-store.cc 90: waiting for exclusive access to the Nix store for ca drvs...");
             /*
                 FIXME should not be locked. who owns the lock?
 
@@ -306,6 +308,8 @@ LocalStore::LocalStore(const Params & params)
 
         printInfo("local-store.cc 307: globalLock: acquiring lock: ltWrite");
         if (!lockFile(globalLock.get(), ltWrite, false)) {
+            printInfo("local-store.cc 307: calling system: lsof /nix/var/nix/db/big-lock");
+            system("lsof /nix/var/nix/db/big-lock");
             printInfo("local-store.cc 307: globalLock: waiting for exclusive access to the Nix store...");
             lockFile(globalLock.get(), ltWrite, true);
         }
