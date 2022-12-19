@@ -83,6 +83,8 @@ void migrateCASchema(SQLite& db, Path schemaPath, AutoCloseFD& lockFd)
 {
     const int nixCASchemaVersion = 4;
     int curCASchema = getSchema(schemaPath);
+    printInfo("local-store.cc 90: migrateCASchema: curCASchema = %i", curCASchema);
+    printInfo("local-store.cc 90: migrateCASchema: nixCASchemaVersion = %i", nixCASchemaVersion);
     if (curCASchema != nixCASchemaVersion) {
         if (curCASchema > nixCASchemaVersion) {
             throw Error("current Nix store ca-schema is version %1%, but I only support %2%",
@@ -283,12 +285,16 @@ LocalStore::LocalStore(const Params & params)
     /* Check the current database schema and if necessary do an
        upgrade.  */
     int curSchema = getSchema();
+    printInfo("local-store.cc 280: curSchema = %i", curSchema);
+    printInfo("local-store.cc 280: nixSchemaVersion = %i", nixSchemaVersion);
+    printInfo("local-store.cc 280: schemaPath = %s", schemaPath);
     if (curSchema > nixSchemaVersion)
         throw Error("current Nix store schema is version %1%, but I only support %2%",
              curSchema, nixSchemaVersion);
 
     else if (curSchema == 0) { /* new store */
         curSchema = nixSchemaVersion;
+        printInfo("local-store.cc 290: openDB");
         openDB(*state, true);
         writeFile(schemaPath, (format("%1%") % nixSchemaVersion).str(), 0666, true);
     }
@@ -321,6 +327,7 @@ LocalStore::LocalStore(const Params & params)
 
         if (curSchema < 7) { upgradeStore7(); }
 
+        printInfo("local-store.cc 330: openDB");
         openDB(*state, false);
 
         if (curSchema < 8) {
@@ -349,10 +356,17 @@ LocalStore::LocalStore(const Params & params)
         printInfo("local-store.cc 343: globalLock: acquired lock: ltRead");
     }
 
-    else openDB(*state, false);
+    else {
+        printInfo("local-store.cc 360: openDB");
+        openDB(*state, false);
+    }
 
     if (settings.isExperimentalFeatureEnabled(Xp::CaDerivations)) {
+        printInfo("local-store.cc 360: ca-derivations is on -> calling migrateCASchema");
         migrateCASchema(state->db, dbDir + "/ca-schema", globalLock);
+    }
+    else {
+        printInfo("local-store.cc 360: ca-derivations is off -> NOT calling migrateCASchema");        
     }
 
     /* Prepare SQL statements. */
@@ -481,6 +495,7 @@ void LocalStore::openDB(State & state, bool create)
 
     /* Open the Nix database. */
     std::string dbPath = dbDir + "/db.sqlite";
+    printInfo("local-store.cc 490: openDB: dbPath = %s", dbPath);
     auto & db(state.db);
     state.db = SQLite(dbPath, create);
 
