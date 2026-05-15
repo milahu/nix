@@ -89,29 +89,29 @@ rec {
     (mkDerivation {
       name = "cyclic-outputs";
       outputs = [
-        "a"
-        "b"
-        "c"
+        "out"
+        "dev"
+        "bin"
       ];
       builder = builtins.toFile "builder.sh" ''
-        mkdir -p $a/subdir $b/subdir $c/subdir
+        mkdir -p $out/subdir $dev/subdir $bin/subdir
 
-        # First cycle: a → b → c → a
-        echo "$b/subdir/b-to-c" > $a/subdir/a-to-b
-        echo "$c/subdir/c-to-a" > $b/subdir/b-to-c
-        echo "$a/subdir/a-to-b" > $c/subdir/c-to-a
+        # First cycle: out → dev → bin → out
+        echo "$dev/subdir/dev-to-bin" > $out/subdir/out-to-dev
+        echo "$bin/subdir/bin-to-out" > $dev/subdir/dev-to-bin
+        echo "$out/subdir/out-to-dev" > $bin/subdir/bin-to-out
 
-        # Second cycle: a → c → b → a
-        echo "$c/subdir/c-to-b-2" > $a/subdir/a-to-c-2
-        echo "$b/subdir/b-to-a-2" > $c/subdir/c-to-b-2
-        echo "$a/subdir/a-to-c-2" > $b/subdir/b-to-a-2
+        # Second cycle: out → bin → dev → out
+        echo "$bin/subdir/bin-to-dev-2" > $out/subdir/out-to-bin-2
+        echo "$dev/subdir/dev-to-out-2" > $bin/subdir/bin-to-dev-2
+        echo "$out/subdir/out-to-bin-2" > $dev/subdir/dev-to-out-2
 
         # Non-cyclic reference (just for complexity)
-        echo "non-cyclic-data" > $a/data
-        echo "non-cyclic-data" > $b/data
-        echo "non-cyclic-data" > $c/data
+        echo "non-cyclic-data" > $out/data
+        echo "non-cyclic-data" > $dev/data
+        echo "non-cyclic-data" > $bin/data
       '';
-    }).a;
+    }).out;
 
   e = mkDerivation {
     name = "multiple-outputs-e";
