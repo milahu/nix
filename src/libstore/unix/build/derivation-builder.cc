@@ -1641,7 +1641,7 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
             auto actualPath = realPathInHost(store.printStorePath(*scratchOutput));
             debug("scanning output '%s' at path '%s' for cycle edges", outputName, actualPath);
 
-            scanForCycleEdges(actualPath, referenceablePaths, edges);
+            scanForCycleEdges(CanonPath(std::string(actualPath)), referenceablePaths, edges);
         }
 
         if (edges.empty()) {
@@ -2080,7 +2080,7 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
             auto actualPath = store.toRealPath(store.printStorePath(newInfo.path));
             debug("scanning registered output '%s' at path '%s' for cycle edges", outputName, actualPath);
 
-            scanForCycleEdges(actualPath, referenceablePaths, edges);
+            scanForCycleEdges(CanonPath(std::string(actualPath)), referenceablePaths, edges);
         }
 
         if (edges.empty()) {
