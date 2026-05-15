@@ -48,13 +48,13 @@ StoreCycleEdgeVec && CycleEdgeScanSink::getEdges()
     return std::move(edges);
 }
 
-void scanForCycleEdges(const Path & path, const StorePathSet & refs, StoreCycleEdgeVec & edges)
+void scanForCycleEdges(const CanonPath & path, const StorePathSet & refs, StoreCycleEdgeVec & edges)
 {
     StringSet hashes;
 
     // Extract the store directory from the path
     // Example: /run/user/1000/nix-test/store/abc-foo -> /run/user/1000/nix-test/store/
-    auto storePrefixPath = std::filesystem::path(path);
+    auto storePrefixPath = std::filesystem::path(path.abs());
     storePrefixPath.remove_filename();
     std::string storePrefix = storePrefixPath.string();
 
@@ -71,7 +71,7 @@ void scanForCycleEdges(const Path & path, const StorePathSet & refs, StoreCycleE
 
     // Get filesystem accessor and walk the tree
     auto accessor = getFSSourceAccessor();
-    walkAndScanPath(*accessor, CanonPath(path), path, sink);
+    walkAndScanPath(*accessor, std::move(path), path.abs(), sink);
 
     // Extract the found edges
     edges = sink.getEdges();

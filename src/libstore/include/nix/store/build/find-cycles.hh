@@ -74,7 +74,7 @@ public:
  * @param refs The set of potentially referenced store paths
  * @param edges Output parameter that accumulates found cycle edges
  */
-void scanForCycleEdges(const Path & path, const StorePathSet & refs, StoreCycleEdgeVec & edges);
+void scanForCycleEdges(const CanonPath & path, const StorePathSet & refs, StoreCycleEdgeVec & edges);
 
 /**
  * Recursively walk filesystem tree and scan each file for hash references.
