@@ -1639,7 +1639,7 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
                 continue;
 
             auto actualPath = realPathInHost(store.printStorePath(*scratchOutput));
-            debug("scanning output '%s' at path '%s' for cycle edges", outputName, actualPath);
+            debug("scanning output '%s' at path '%s' for cycle edges", outputName, PathFmt(actualPath));
 
             scanForCycleEdges(CanonPath(std::string(actualPath)), referenceablePaths, edges);
         }
@@ -2078,7 +2078,7 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
         StoreCycleEdgeVec edges;
         for (auto & [outputName, newInfo] : infos) {
             auto actualPath = store.toRealPath(newInfo.path);
-            debug("scanning registered output '%s' at path '%s' for cycle edges", outputName, actualPath);
+            debug("scanning registered output '%s' at path '%s' for cycle edges", outputName, PathFmt(actualPath));
 
             scanForCycleEdges(CanonPath(std::string(actualPath)), referenceablePaths, edges);
         }
