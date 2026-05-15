@@ -2077,7 +2077,7 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
         // Scan all outputs for cycle edges with exact file paths
         StoreCycleEdgeVec edges;
         for (auto & [outputName, newInfo] : infos) {
-            auto actualPath = store.toRealPath(store.printStorePath(newInfo.path));
+            auto actualPath = store.toRealPath(newInfo.path);
             debug("scanning registered output '%s' at path '%s' for cycle edges", outputName, actualPath);
 
             scanForCycleEdges(CanonPath(std::string(actualPath)), referenceablePaths, edges);
