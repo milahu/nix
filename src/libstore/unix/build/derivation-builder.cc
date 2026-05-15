@@ -1678,8 +1678,13 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
         }
 
         // Throw new error with original message + cycle details
-        BuildError * buildErr = dynamic_cast<BuildError *>(&e);
-        std::string originalMsg = buildErr ? std::string(buildErr->msg()) : std::string(e.what());
+        std::string originalMsg;
+        try {
+            auto & buildErr = dynamic_cast<BuildError &>(e);
+            originalMsg = buildErr.msg();
+        } catch (const std::bad_cast &) {
+            originalMsg = e.what();
+        }
         throw BuildError(BuildResult::Failure::OutputRejected, "%s\n\n%s", originalMsg, cycleDetails);
     }
 
@@ -2117,8 +2122,13 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
         }
 
         // Throw new error with original message + cycle details
-        BuildError * buildErr = dynamic_cast<BuildError *>(&e);
-        std::string originalMsg = buildErr ? std::string(buildErr->msg()) : std::string(e.what());
+        std::string originalMsg;
+        try {
+            auto & buildErr = dynamic_cast<BuildError &>(e);
+            originalMsg = buildErr.msg();
+        } catch (const std::bad_cast &) {
+            originalMsg = e.what();
+        }
         throw BuildError(BuildResult::Failure::OutputRejected, "%s\n\n%s", originalMsg, cycleDetails);
     }
 
