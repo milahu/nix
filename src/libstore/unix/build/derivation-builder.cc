@@ -1449,6 +1449,12 @@ void DerivationBuilderImpl::execBuilder(const Strings & args, const Strings & en
     execve(drv.builder.c_str(), stringsToCharPtrs(args).data(), stringsToCharPtrs(envStrs).data());
 }
 
+bool isCycleError(const BuildError & e)
+{
+    const std::string msg = e.what();
+    return msg.find("cycle detected in build of") != std::string::npos;
+}
+
 SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
 {
     std::map<std::string, ValidPathInfo> infos;
@@ -1628,7 +1634,11 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
         topoSortResult);
 
     // ...TODO indent
-    } catch (std::exception & e) {
+    } catch (BuildError & e) {
+        if (!isCycleError(e)) {
+            throw;
+        }
+
         debug("cycle detected during topoSort, analyzing for detailed error report");
 
         // Scan all outputs for cycle edges with exact file paths
