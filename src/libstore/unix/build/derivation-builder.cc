@@ -1678,6 +1678,8 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
         }
 
         // Throw new error with original message + cycle details
+        // FIXME this duplicates the "error: " prefix like
+        // error: error: cycle detected
         std::string originalMsg;
         try {
             auto & buildErr = dynamic_cast<BuildError &>(e);
@@ -2122,6 +2124,8 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
         }
 
         // Throw new error with original message + cycle details
+        // FIXME this duplicates the "error: " prefix like
+        // error: error: cycle detected
         std::string originalMsg;
         try {
             auto & buildErr = dynamic_cast<BuildError &>(e);
