@@ -1638,7 +1638,7 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
             if (!scratchOutput)
                 continue;
 
-            auto actualPath = realPathInSandbox(store.printStorePath(*scratchOutput));
+            auto actualPath = realPathInHost(store.printStorePath(*scratchOutput));
             debug("scanning output '%s' at path '%s' for cycle edges", outputName, actualPath);
 
             scanForCycleEdges(actualPath, referenceablePaths, edges);
