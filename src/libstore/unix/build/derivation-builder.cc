@@ -1708,17 +1708,18 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
         transformEdgesToMultiedges(edges, multiedges);
 
         // Build detailed error message
-        std::string cycleDetails = fmt("Detailed cycle analysis found %d cycle path(s):", multiedges.size());
+        // ANSI_NORMAL because i hate pink
+        std::string cycleDetails = fmt(ANSI_NORMAL "Found %d cycle paths:", multiedges.size());
 
         for (size_t i = 0; i < multiedges.size(); i++) {
 
             const auto & e = multiedges[i];
 
-            cycleDetails += fmt("\n\nCycle %d:", i + 1);
+            cycleDetails += fmt("\n\n%d:", i + 1);
 
             std::string current = e.from;
 
-            cycleDetails += fmt("\n  → %s", current);
+            cycleDetails += fmt("\n  - %s", current);
 
             std::set<std::string> seen;
             seen.insert(current);
@@ -1727,7 +1728,7 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
 
             while (true) {
 
-                cycleDetails += fmt("\n  → %s", edge->to);
+                cycleDetails += fmt("\n  - %s", edge->to);
 
                 if (seen.count(edge->to))
                     break;
@@ -1750,9 +1751,12 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
             }
         }
 
-        cycleDetails +=
-            fmt("\n\nThis means there are circular references between output files.\n"
-                "The build cannot proceed because the outputs reference each other.");
+        // yeah i know what a cycle is...
+        // and everyone else can google:
+        // nix error: cycle detected in build
+        // cycleDetails +=
+        //     fmt("\n\nThis means there are circular references between output files.\n"
+        //         "The build cannot proceed because the outputs reference each other.");
 
         // Add hint with temp paths for debugging
         if (settings.keepFailed || verbosity >= lvlDebug) {
@@ -1762,8 +1766,6 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
         }
 
         // Throw new error with original message + cycle details
-        // FIXME this duplicates the "error: " prefix like
-        // error: error: cycle detected
         std::string originalMsg;
         try {
             auto & buildErr = dynamic_cast<BuildError &>(e);
@@ -1771,6 +1773,19 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
         } catch (const std::bad_cast &) {
             originalMsg = e.what();
         }
+        // dont duplicate the "error: " prefix
+        for (auto prefix : {
+                ANSI_RED "error:" ANSI_NORMAL " ",
+                "error: "
+            })
+        {
+            if (originalMsg.starts_with(prefix)) {
+                originalMsg.erase(0, strlen(prefix));
+                break;
+            }
+        }
+        // ANSI_NORMAL because i hate pink
+        originalMsg = ANSI_NORMAL + originalMsg;
         throw BuildError(BuildResult::Failure::OutputRejected, "%s\n\n%s", originalMsg, cycleDetails);
     }
 
@@ -2204,17 +2219,18 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
         transformEdgesToMultiedges(edges, multiedges);
 
         // Build detailed error message
-        std::string cycleDetails = fmt("Detailed cycle analysis found %d cycle path(s):", multiedges.size());
+        // ANSI_NORMAL because i hate pink
+        std::string cycleDetails = fmt(ANSI_NORMAL "Found %d cycle paths:", multiedges.size());
 
         for (size_t i = 0; i < multiedges.size(); i++) {
 
             const auto & e = multiedges[i];
 
-            cycleDetails += fmt("\n\nCycle %d:", i + 1);
+            cycleDetails += fmt("\n\n%d:", i + 1);
 
             std::string current = e.from;
 
-            cycleDetails += fmt("\n  → %s", current);
+            cycleDetails += fmt("\n  - %s", current);
 
             std::set<std::string> seen;
             seen.insert(current);
@@ -2223,7 +2239,7 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
 
             while (true) {
 
-                cycleDetails += fmt("\n  → %s", edge->to);
+                cycleDetails += fmt("\n  - %s", edge->to);
 
                 if (seen.count(edge->to))
                     break;
@@ -2258,8 +2274,6 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
         }
 
         // Throw new error with original message + cycle details
-        // FIXME this duplicates the "error: " prefix like
-        // error: error: cycle detected
         std::string originalMsg;
         try {
             auto & buildErr = dynamic_cast<BuildError &>(e);
@@ -2267,6 +2281,19 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
         } catch (const std::bad_cast &) {
             originalMsg = e.what();
         }
+        // dont duplicate the "error: " prefix
+        for (auto prefix : {
+                ANSI_RED "error:" ANSI_NORMAL " ",
+                "error: "
+            })
+        {
+            if (originalMsg.starts_with(prefix)) {
+                originalMsg.erase(0, strlen(prefix));
+                break;
+            }
+        }
+        // ANSI_NORMAL because i hate pink
+        originalMsg = ANSI_NORMAL + originalMsg;
         throw BuildError(BuildResult::Failure::OutputRejected, "%s\n\n%s", originalMsg, cycleDetails);
     }
 
