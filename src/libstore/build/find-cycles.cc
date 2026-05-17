@@ -264,6 +264,17 @@ void scanForCycleEdges2(
                     from.erase(0, chrootPrefixLen);
                     // /nix/store/nim5yyh540r583888k7fjnmphn5nw3j1-cyclic-outputs-bin/subdir/bin-to-dev-2
 
+                // deduplicate edges
+                bool isDuplicateEdge = false;
+                for (const auto & otherEdge : edges) {
+                    if (otherEdge.size() != 2) continue;
+                    if (otherEdge[0] != from) continue;
+                    if (otherEdge[1] != targetPath) continue;
+                    isDuplicateEdge = true;
+                    break;
+                }
+                if (isDuplicateEdge) break;
+
                 debug(
                     "scanForCycleEdges2: cycle edge:\n"
                     "  from=%s\n"
