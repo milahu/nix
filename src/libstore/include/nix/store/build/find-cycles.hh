@@ -7,6 +7,8 @@
 #include "nix/util/source-accessor.hh"
 #include "nix/util/posix-source-accessor.hh"
 #include "nix/store/local-store.hh"
+#include "nix/store/build-result.hh"
+#include "nix/store/globals.hh"
 
 #include <string>
 #include <deque>
@@ -151,5 +153,18 @@ std::optional<std::string> findLongestExistingStorePath(
     // the "to" derivation's outPath: "/nix/store/hash-name"
     const std::string & storePathPrefix
 );
+
+struct CycleErrorContext {
+    const BuildError & error;
+    LocalStore & store;
+    const StorePathSet & referenceablePaths;
+    std::string_view stageName;
+    Settings settings;
+    // TODO? restore the simple version
+    // std::function<std::vector<std::string>()> scanOutputs;
+    std::function<std::vector<std::vector<std::string>>()> scanOutputs;
+};
+
+BuildError getDetailedCycleError(const CycleErrorContext & ctx);
 
 } // namespace nix

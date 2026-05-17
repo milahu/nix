@@ -1449,12 +1449,6 @@ void DerivationBuilderImpl::execBuilder(const Strings & args, const Strings & en
     execve(drv.builder.c_str(), stringsToCharPtrs(args).data(), stringsToCharPtrs(envStrs).data());
 }
 
-bool isCycleError(const BuildError & e)
-{
-    const std::string msg = e.what();
-    return msg.find("cycle detected in build of") != std::string::npos;
-}
-
 SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
 {
     std::map<std::string, ValidPathInfo> infos;
@@ -1635,158 +1629,40 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
 
     // ...TODO indent
     } catch (BuildError & e) {
-
-        debug("derivation-builder.cc 1650 e.what()=%s", e.what());
-
-        if (!isCycleError(e)) {
-            throw;
-        }
-
-        // FIXME deduplicate
-        // cycle detected during topoSort
-        // cycle detected during registerValidPaths
-
         debug("cycle detected during topoSort, analyzing for detailed error report");
-
-        // Scan all outputs for cycle edges with exact file paths
-        StoreCycleEdgeVec edges;
-        for (auto & [outputName, _] : drv.outputs) {
-            auto scratchOutput = get(scratchOutputs, outputName);
-            if (!scratchOutput)
-                continue;
-
-            // "/nix/store/nim5yyh540r583888k7fjnmphn5nw3j1-cyclic-outputs-bin"
-            debug(
-                "derivation-builder.cc 1650 store.printStorePath(*scratchOutput)=%s",
-                PathFmt(store.printStorePath(*scratchOutput))
-            );
-            // "/nix/store/rngknmkywf75sh5i5pwpd66kz59xkx0a-cyclic-outputs.drv.chroot/root/nix/store/nim5yyh540r583888k7fjnmphn5nw3j1-cyclic-outputs-bin"
-            debug(
-                "derivation-builder.cc 1650 realPathInHost(store.printStorePath(*scratchOutput))=%s",
-                PathFmt(realPathInHost(store.printStorePath(*scratchOutput)))
-            );
-
-            // auto actualPath = realPathInHost(store.printStorePath(*scratchOutput));
-            // /nix/store/nim5yyh540r583888k7fjnmphn5nw3j1-cyclic-outputs-bin
-            std::string actualPath = store.printStorePath(*scratchOutput);
-
-            // remove the chroot prefix path before "/nix/store/"
-            // TODO better?
-            // /nix/store/rngknmkywf75sh5i5pwpd66kz59xkx0a-cyclic-outputs.drv.chroot/root/nix/store/nim5yyh540r583888k7fjnmphn5nw3j1-cyclic-outputs-bin
-            std::string hostPath = std::string(realPathInHost(actualPath));
-            assert(hostPath.ends_with(actualPath));
-            size_t chrootPrefixLen = hostPath.size() - actualPath.size();
-            const std::string chrootPrefix = hostPath.substr(0, chrootPrefixLen);
-
-            debug("scanning output '%s' at path '%s' for cycle edges", outputName, PathFmt(actualPath));
-
-            auto pathAccessor = makeFSSourceAccessor(
-                // /nix/store/rngknmkywf75sh5i5pwpd66kz59xkx0a-cyclic-outputs.drv.chroot/root/nix/store/nim5yyh540r583888k7fjnmphn5nw3j1-cyclic-outputs-bin
-                realPathInHost(actualPath)
-            );
-
-            scanForCycleEdges(
-                store,
-                *pathAccessor,
-                chrootPrefixLen,
-                chrootPrefix,
-                CanonPath("/"),
-                referenceablePaths,
-                edges
-            );
-        }
-
-        if (edges.empty()) {
-            debug("no detailed cycle edges found, re-throwing original error");
-            throw;
-        }
-
-        debug("found %lu cycle edges, transforming to connected paths", edges.size());
-
-        // Transform individual edges into connected multi-edges (paths)
-        StoreCycleEdgeVec multiedges;
-        transformEdgesToMultiedges(edges, multiedges);
-
-        // Build detailed error message
-        // ANSI_NORMAL because i hate pink
-        std::string cycleDetails = fmt(ANSI_NORMAL "Found %d cycle paths:", multiedges.size());
-
-        for (size_t i = 0; i < multiedges.size(); i++) {
-
-            const auto & e = multiedges[i];
-
-            cycleDetails += fmt("\n\n%d:", i + 1);
-
-            std::string current = e.from;
-
-            cycleDetails += fmt("\n  - %s", current);
-
-            std::set<std::string> seen;
-            seen.insert(current);
-
-            const auto * edge = &e;
-
-            while (true) {
-
-                cycleDetails += fmt("\n  - %s", edge->to);
-
-                if (seen.count(edge->to))
-                    break;
-
-                seen.insert(edge->to);
-                current = edge->to;
-
-                // NOTE: this assumes multiedges is already ordered path-wise
-                auto it = std::find_if(
-                    multiedges.begin(),
-                    multiedges.end(),
-                    [&](const StoreCycleEdge & x) {
-                        return x.from == current;
-                    });
-
-                if (it == multiedges.end())
-                    break;
-
-                edge = &(*it);
-            }
-        }
-
-        // yeah i know what a cycle is...
-        // and everyone else can google:
-        // nix error: cycle detected in build
-        // cycleDetails +=
-        //     fmt("\n\nThis means there are circular references between output files.\n"
-        //         "The build cannot proceed because the outputs reference each other.");
-
-        // Add hint with temp paths for debugging
-        if (settings.keepFailed || verbosity >= lvlDebug) {
-            cycleDetails +=
-                fmt("\n\nNote: Build outputs are kept for inspection.\n"
-                    "You can examine the files listed above to understand the cycle.");
-        }
-
-        // Throw new error with original message + cycle details
-        std::string originalMsg;
-        try {
-            auto & buildErr = dynamic_cast<BuildError &>(e);
-            originalMsg = buildErr.msg();
-        } catch (const std::bad_cast &) {
-            originalMsg = e.what();
-        }
-        // dont duplicate the "error: " prefix
-        for (auto prefix : {
-                ANSI_RED "error:" ANSI_NORMAL " ",
-                "error: "
-            })
-        {
-            if (originalMsg.starts_with(prefix)) {
-                originalMsg.erase(0, strlen(prefix));
-                break;
-            }
-        }
-        // ANSI_NORMAL because i hate pink
-        originalMsg = ANSI_NORMAL + originalMsg;
-        throw BuildError(BuildResult::Failure::OutputRejected, "%s\n\n%s", originalMsg, cycleDetails);
+        throw getDetailedCycleError({
+            .error = e,
+            .store = store,
+            .referenceablePaths = referenceablePaths,
+            .stageName = "topoSort",
+            .settings = settings,
+            // TODO? restore the simple version
+            // .scanOutputs = [&]() {
+            //     std::vector<std::string> paths;
+            //     for (auto & [outputName, _] : drv.outputs) {
+            //         auto scratchOutput = get(scratchOutputs, outputName);
+            //         if (!scratchOutput)
+            //             continue;
+            //         std::string actualPath = store.printStorePath(*scratchOutput);
+            //         paths.push_back(realPathInHost(actualPath));
+            //     }
+            //     return paths;
+            // },
+            .scanOutputs = [&]() {
+                std::vector<std::vector<std::string>> outputs;
+                for (auto & [outputName, _] : drv.outputs) {
+                    auto scratchOutput = get(scratchOutputs, outputName);
+                    if (!scratchOutput)
+                        continue;
+                    std::string actualPath = store.printStorePath(*scratchOutput);
+                    std::string hostPath = realPathInHost(actualPath);
+                    // TODO use a struct for outputItem?
+                    std::vector<std::string> outputItem = {outputName, actualPath, hostPath};
+                    outputs.push_back(outputItem);
+                }
+                return outputs;
+            },
+        });
     }
 
     std::reverse(sortedOutputNames.begin(), sortedOutputNames.end());
@@ -2179,122 +2055,37 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
         store.registerValidPaths(infos2);
     } catch (BuildError & e) {
         debug("cycle detected during registerValidPaths, analyzing for detailed error report");
-
-        // Scan all outputs for cycle edges with exact file paths
-        StoreCycleEdgeVec edges;
-        for (auto & [outputName, newInfo] : infos) {
-            auto actualPath = store.toRealPath(newInfo.path);
-            debug("scanning registered output '%s' at path '%s' for cycle edges", outputName, PathFmt(actualPath));
-
-            // remove the chroot prefix path before "/nix/store/"
-            // TODO better?
-            std::string actualPathStr = std::string(actualPath);
-            std::string hostPath = std::string(realPathInHost(actualPath));
-            assert(hostPath.ends_with(actualPathStr));
-            size_t chrootPrefixLen = hostPath.size() - actualPathStr.size();
-            const std::string chrootPrefix = hostPath.substr(0, chrootPrefixLen);
-
-            auto pathAccessor = makeFSSourceAccessor(realPathInHost(actualPath));
-
-            scanForCycleEdges(
-                store,
-                *pathAccessor,
-                chrootPrefixLen,
-                chrootPrefix,
-                CanonPath("/"),
-                referenceablePaths,
-                edges
-            );
-        }
-
-        if (edges.empty()) {
-            debug("no detailed cycle edges found, re-throwing original error");
-            throw;
-        }
-
-        debug("found %lu cycle edges, transforming to connected paths", edges.size());
-
-        // Transform individual edges into connected multi-edges (paths)
-        StoreCycleEdgeVec multiedges;
-        transformEdgesToMultiedges(edges, multiedges);
-
-        // Build detailed error message
-        // ANSI_NORMAL because i hate pink
-        std::string cycleDetails = fmt(ANSI_NORMAL "Found %d cycle paths:", multiedges.size());
-
-        for (size_t i = 0; i < multiedges.size(); i++) {
-
-            const auto & e = multiedges[i];
-
-            cycleDetails += fmt("\n\n%d:", i + 1);
-
-            std::string current = e.from;
-
-            cycleDetails += fmt("\n  - %s", current);
-
-            std::set<std::string> seen;
-            seen.insert(current);
-
-            const auto * edge = &e;
-
-            while (true) {
-
-                cycleDetails += fmt("\n  - %s", edge->to);
-
-                if (seen.count(edge->to))
-                    break;
-
-                seen.insert(edge->to);
-                current = edge->to;
-
-                // NOTE: this assumes multiedges is already ordered path-wise
-                auto it = std::find_if(
-                    multiedges.begin(),
-                    multiedges.end(),
-                    [&](const StoreCycleEdge & x) {
-                        return x.from == current;
-                    });
-
-                if (it == multiedges.end())
-                    break;
-
-                edge = &(*it);
-            }
-        }
-
-        cycleDetails +=
-            fmt("\n\nThis means there are circular references between output files.\n"
-                "The build cannot proceed because the outputs reference each other.");
-
-        // Add hint with temp paths for debugging
-        if (settings.keepFailed || verbosity >= lvlDebug) {
-            cycleDetails +=
-                fmt("\n\nNote: Build outputs were kept for inspection.\n"
-                    "You can examine the files listed above to understand the cycle.");
-        }
-
-        // Throw new error with original message + cycle details
-        std::string originalMsg;
-        try {
-            auto & buildErr = dynamic_cast<BuildError &>(e);
-            originalMsg = buildErr.msg();
-        } catch (const std::bad_cast &) {
-            originalMsg = e.what();
-        }
-        // dont duplicate the "error: " prefix
-        for (auto prefix : {
-                ANSI_RED "error:" ANSI_NORMAL " ",
-                "error: "
-            })
-        {
-            if (originalMsg.starts_with(prefix)) {
-                originalMsg.erase(0, strlen(prefix));
-                break;
-            }
-        }
-        // ANSI_NORMAL because i hate pink
-        originalMsg = ANSI_NORMAL + originalMsg;
-        throw BuildError(BuildResult::Failure::OutputRejected, "%s\n\n%s", originalMsg, cycleDetails);
+        throw getDetailedCycleError({
+            .error = e,
+            .store = store,
+            .referenceablePaths = referenceablePaths,
+            .stageName = "registerValidPaths",
+            .settings = settings,
+            // TODO? restore the simple version
+            // .scanOutputs = [&]() {
+            //     std::vector<std::string> paths;
+            //     for (auto & [outputName, newInfo] : infos) {
+            //         debug("scanOutputs: outputName=%s", outputName);
+            //         auto actualPath = store.toRealPath(newInfo.path);
+            //         debug("scanOutputs: actualPath=%s", std::string(actualPath));
+            //         paths.push_back(realPathInHost(actualPath));
+            //     }
+            //     return paths;
+            // },
+            .scanOutputs = [&]() {
+                std::vector<std::vector<std::string>> outputs;
+                for (auto & [outputName, newInfo] : infos) {
+                    // debug("scanOutputs: outputName=%s", outputName);
+                    auto actualPath = store.toRealPath(newInfo.path);
+                    // debug("scanOutputs: actualPath=%s", std::string(actualPath));
+                    std::string hostPath = realPathInHost(actualPath);
+                    // TODO use a struct for outputItem?
+                    std::vector<std::string> outputItem = {outputName, actualPath, hostPath};
+                    outputs.push_back(outputItem);
+                }
+                return outputs;
+            },
+        });
     }
 
     /* If we made it this far, we are sure the output matches the

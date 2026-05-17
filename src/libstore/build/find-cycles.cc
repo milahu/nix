@@ -528,4 +528,173 @@ std::optional<std::string> findLongestExistingStorePath(
     return best;
 }
 
+bool isCycleError(const BuildError & error)
+{
+    std::string originalMsg;
+    try {
+        auto &be = dynamic_cast<const BuildError &>(error);
+        originalMsg = be.msg();
+    } catch (...) {
+        originalMsg = error.what();
+    }
+    for (auto prefix : {
+            ANSI_RED "error:" ANSI_NORMAL " cycle detected in build of",
+            "error: cycle detected in build of"
+        })
+    {
+        if (originalMsg.starts_with(prefix)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+BuildError getDetailedCycleError(const CycleErrorContext & ctx)
+{
+    if (!isCycleError(ctx.error)) {
+        return ctx.error;
+    }
+
+    debug("getting detailed cycle error for %s", ctx.stageName);
+
+    // Scan all outputs for cycle edges with exact file paths
+    StoreCycleEdgeVec edges;
+
+    for (std::vector<std::string> & outputItem : ctx.scanOutputs()) {
+
+        std::string outputName = outputItem[0];
+
+        // /nix/store/nim5yyh540r583888k7fjnmphn5nw3j1-cyclic-outputs-bin
+        std::string actualPath = outputItem[1];
+
+        // /nix/store/rngknmkywf75sh5i5pwpd66kz59xkx0a-cyclic-outputs.drv.chroot/root/nix/store/nim5yyh540r583888k7fjnmphn5nw3j1-cyclic-outputs-bin
+        std::string hostPath = outputItem[2];
+
+        debug("scanning for cycle edges in output '%s' at path '%s'", outputName, PathFmt(actualPath));
+
+        // FIXME chroot prefix is missing in hostPath2
+        // hostPath=/nix/store/rngknmkywf75sh5i5pwpd66kz59xkx0a-cyclic-outputs.drv.chroot/root/nix/store/nim5yyh540r583888k7fjnmphn5nw3j1-cyclic-outputs-bin
+        // hostPath2=/nix/store/nim5yyh540r583888k7fjnmphn5nw3j1-cyclic-outputs-bin
+        // auto hostPath2 = std::string(realPathInHost(actualPath));
+        // auto hostPath2 = std::string(ctx.store.toRealPath(ctx.store.parseStorePath(actualPath)));
+        // debug("getDetailedCycleError: hostPath2=%s", hostPath2);
+
+        auto accessor = makeFSSourceAccessor(hostPath);
+
+        // remove the chroot prefix path before "/nix/store/"
+        // TODO better?
+        size_t chrootPrefixLen = hostPath.size() - actualPath.size();
+        std::string chrootPrefix = hostPath.substr(0, chrootPrefixLen);
+
+        scanForCycleEdges(
+            ctx.store,
+            *accessor,
+            chrootPrefixLen,
+            chrootPrefix,
+            CanonPath("/"),
+            ctx.referenceablePaths,
+            edges
+        );
+    }
+
+    if (edges.empty()) {
+        debug("no detailed cycle edges found, rethrowing");
+        return ctx.error;
+    }
+
+    debug("found %lu cycle edges, transforming to connected paths", edges.size());
+
+    // Transform individual edges into connected multi-edges (paths)
+    StoreCycleEdgeVec multiedges;
+    transformEdgesToMultiedges(edges, multiedges);
+
+    // Build detailed error message
+    // ANSI_NORMAL because i hate pink
+    std::string cycleDetails = fmt(ANSI_NORMAL "Found %d cycle paths:", multiedges.size());
+
+    for (size_t i = 0; i < multiedges.size(); i++) {
+        const auto &e = multiedges[i];
+
+        cycleDetails += fmt("\n\n%d:", i + 1);
+
+        std::string current = e.from;
+        cycleDetails += fmt("\n  - %s", current);
+
+        std::set<std::string> seen{current};
+        const auto *edge = &e;
+
+        while (true) {
+            cycleDetails += fmt("\n  - %s", edge->to);
+
+            if (!seen.insert(edge->to).second)
+                break;
+
+            current = edge->to;
+
+            // NOTE: this assumes multiedges is already ordered path-wise
+            auto it = std::find_if(
+                multiedges.begin(),
+                multiedges.end(),
+                [&](const StoreCycleEdge &x) {
+                    return x.from == current;
+                });
+
+            if (it == multiedges.end())
+                break;
+
+            edge = &(*it);
+        }
+    }
+
+    // yeah i know what a cycle is...
+    // and everyone else can google:
+    // nix error: cycle detected in build
+    // cycleDetails +=
+    //     "\n\nThis means there are circular references between output files.\n"
+    //     "The build cannot proceed because the outputs reference each other.";
+
+    // Add hint with temp paths for debugging
+    if (settings.keepFailed || verbosity >= lvlDebug) {
+        cycleDetails +=
+            fmt("\n\nNote: Build outputs are kept for inspection.\n"
+                "You can examine the files listed above to understand the cycle.");
+    }
+
+    // Throw new error with original message + cycle details
+    std::string originalMsg;
+    try {
+        auto &be = dynamic_cast<const BuildError &>(ctx.error);
+        originalMsg = be.msg();
+    } catch (...) {
+        originalMsg = ctx.error.what();
+    }
+
+    // dont duplicate the "error: " prefix
+    for (auto prefix : {
+            ANSI_RED "error:" ANSI_NORMAL " ",
+            "error: "
+        })
+    {
+        if (originalMsg.starts_with(prefix)) {
+            originalMsg.erase(0, strlen(prefix));
+            break;
+        }
+    }
+
+    // ANSI_NORMAL because i hate pink
+    originalMsg = ANSI_NORMAL + originalMsg;
+
+    // repeat the error message
+    // so users dont have to scroll up
+    // this may be useful if we find many cycles
+    cycleDetails += "\n\n" ANSI_RED "error:" ANSI_NORMAL " " + originalMsg;
+
+    return BuildError(
+        BuildResult::Failure::OutputRejected,
+        "%s\n\n%s",
+        originalMsg,
+        cycleDetails
+    );
+}
+
 } // namespace nix
