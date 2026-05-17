@@ -29,15 +29,7 @@ namespace nix {
  * Example: {"/nix/store/abc-foo/file1", "/nix/store/def-bar/file2"}
  * represents a reference from file1 to file2.
  */
-struct StoreCycleEdge {
-    std::string from;
-    std::string to;
-
-    bool operator==(const StoreCycleEdge & other) const
-    {
-        return from == other.from && to == other.to;
-    }
-};
+using StoreCycleEdge = std::deque<std::string>;
 
 /**
  * A collection of cycle edges found during scanning.

@@ -327,81 +327,94 @@ void walkAndScanPath(
     }
 }
 
-void transformEdgesToMultiedges(
-    StoreCycleEdgeVec & edges,
-    StoreCycleEdgeVec & multiedges)
+void transformEdgesToMultiedges(StoreCycleEdgeVec & edges, StoreCycleEdgeVec & multiedges)
 {
-    // adjacency: from -> to list
-    std::multimap<std::string, std::string> graph;
+    debug("transformEdgesToMultiedges: processing %lu edges", edges.size());
 
-    for (const auto & e : edges) {
-        graph.emplace(e.from, e.to);
-    }
+    // Maps to track path endpoints for efficient joining
+    // Key: node name, Value: index into multiedges vector
+    std::map<std::string, size_t> pathStartingAt; // Maps start node -> path index
+    std::map<std::string, size_t> pathEndingAt;   // Maps end node -> path index
 
-    std::set<std::string> usedEdges;
+    for (auto & edge : edges) {
+        if (edge.empty())
+            continue;
 
-    for (const auto & startEdge : edges) {
+        const std::string & edgeStart = edge.front();
+        const std::string & edgeEnd = edge.back();
 
-        StoreCycleEdgeVec path;
-        std::string start = startEdge.from;
-        std::string current = start;
+        // Check if this edge can connect to existing paths
+        auto startIt = pathEndingAt.find(edgeStart);
+        auto endIt = pathStartingAt.find(edgeEnd);
 
-        std::vector<std::string> nodes;
-        nodes.push_back(start);
+        bool canPrepend = (startIt != pathEndingAt.end());
+        bool canAppend = (endIt != pathStartingAt.end());
 
-        std::set<std::string> seenNodes;
-        seenNodes.insert(start);
+        if (canPrepend && canAppend && startIt->second == endIt->second) {
+            // Edge connects a path to itself - append it to form a cycle
+            size_t pathIdx = startIt->second;
+            auto & path = multiedges[pathIdx];
+            // Append all but first element of edge (first element is duplicate)
+            path.insert(path.end(), std::next(edge.begin()), edge.end());
+            // Update the end point (start point stays the same for a cycle)
+            pathEndingAt.erase(startIt);
+            pathEndingAt[edgeEnd] = pathIdx;
+        } else if (canPrepend && canAppend) {
+            // Edge joins two different paths - merge them
+            size_t prependIdx = startIt->second;
+            size_t appendIdx = endIt->second;
+            auto & prependPath = multiedges[prependIdx];
+            auto & appendPath = multiedges[appendIdx];
 
-        while (true) {
+            // Save endpoint before modifying appendPath
+            const std::string appendPathEnd = appendPath.back();
+            const std::string appendPathStart = appendPath.front();
 
-            auto range = graph.equal_range(current);
+            // Append edge (without first element) to prependPath
+            prependPath.insert(prependPath.end(), std::next(edge.begin()), edge.end());
+            // Append appendPath (without first element) to prependPath
+            prependPath.insert(prependPath.end(), std::next(appendPath.begin()), appendPath.end());
 
-            bool advanced = false;
+            // Update maps: prependPath now ends where appendPath ended
+            pathEndingAt.erase(startIt);
+            pathEndingAt[appendPathEnd] = prependIdx;
+            pathStartingAt.erase(appendPathStart);
 
-            for (auto it = range.first; it != range.second; ++it) {
-
-                std::string next = it->second;
-
-                std::string edgeKey = current + "->" + next;
-
-                if (usedEdges.count(edgeKey))
-                    continue;
-
-                usedEdges.insert(edgeKey);
-
-                nodes.push_back(next);
-
-                current = next;
-                advanced = true;
-
-                break;
-            }
-
-            if (!advanced)
-                break;
-
-            if (current == start && nodes.size() > 1) {
-
-                StoreCycleEdgeVec cycle;
-
-                for (size_t i = 0; i < nodes.size(); i++) {
-                    if (i + 1 < nodes.size()) {
-                        cycle.push_back(StoreCycleEdge{
-                            nodes[i],
-                            nodes[i + 1]
-                        });
-                    }
-                }
-
-                multiedges.insert(
-                    multiedges.end(),
-                    cycle.begin(),
-                    cycle.end());
-
-                break;
-            }
+            // Mark appendPath for removal by clearing it
+            appendPath.clear();
+        } else if (canPrepend) {
+            // Edge extends an existing path at its end
+            size_t pathIdx = startIt->second;
+            auto & path = multiedges[pathIdx];
+            // Append all but first element of edge (first element is duplicate)
+            path.insert(path.end(), std::next(edge.begin()), edge.end());
+            // Update the end point
+            pathEndingAt.erase(startIt);
+            pathEndingAt[edgeEnd] = pathIdx;
+        } else if (canAppend) {
+            // Edge extends an existing path at its start
+            size_t pathIdx = endIt->second;
+            auto & path = multiedges[pathIdx];
+            // Prepend all but last element of edge (last element is duplicate)
+            path.insert(path.begin(), edge.begin(), std::prev(edge.end()));
+            // Update the start point
+            pathStartingAt.erase(endIt);
+            pathStartingAt[edgeStart] = pathIdx;
+        } else {
+            // Edge doesn't connect to anything - start a new path
+            size_t newIdx = multiedges.size();
+            multiedges.push_back(edge);
+            pathStartingAt[edgeStart] = newIdx;
+            pathEndingAt[edgeEnd] = newIdx;
         }
     }
+
+    // Remove empty paths (those that were merged into others)
+    multiedges.erase(
+        std::remove_if(multiedges.begin(), multiedges.end(), [](const StoreCycleEdge & p) { return p.empty(); }),
+        multiedges.end());
+
+    debug("transformEdgesToMultiedges: result has %lu multiedges", multiedges.size());
 }
 
 std::optional<std::string> findLongestExistingStorePath(
@@ -613,36 +626,10 @@ BuildError getDetailedCycleError(const CycleErrorContext & ctx)
     std::string cycleDetails = fmt(ANSI_NORMAL "Found %d cycle paths:", multiedges.size());
 
     for (size_t i = 0; i < multiedges.size(); i++) {
-        const auto &e = multiedges[i];
-
-        cycleDetails += fmt("\n\n%d:", i + 1);
-
-        std::string current = e.from;
-        cycleDetails += fmt("\n  - %s", current);
-
-        std::set<std::string> seen{current};
-        const auto *edge = &e;
-
-        while (true) {
-            cycleDetails += fmt("\n  - %s", edge->to);
-
-            if (!seen.insert(edge->to).second)
-                break;
-
-            current = edge->to;
-
-            // NOTE: this assumes multiedges is already ordered path-wise
-            auto it = std::find_if(
-                multiedges.begin(),
-                multiedges.end(),
-                [&](const StoreCycleEdge &x) {
-                    return x.from == current;
-                });
-
-            if (it == multiedges.end())
-                break;
-
-            edge = &(*it);
+        auto & multiedge = multiedges[i];
+        cycleDetails += fmt("\n\nCycle %d:", i + 1);
+        for (auto & file : multiedge) {
+            cycleDetails += fmt("\n  → %s", file);
         }
     }
 

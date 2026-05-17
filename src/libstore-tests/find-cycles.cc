@@ -67,12 +67,9 @@ StoreCycleEdgeVec toStoreCycleEdgeVec(const std::vector<std::vector<std::string>
 // Comparator for sorting multiedges deterministically
 bool compareMultiedges(const StoreCycleEdge & a, const StoreCycleEdge & b)
 {
-    if (a.from != b.from)
-        // return a.from < b.from;
-        return std::lexicographical_compare(a.from.begin(), a.from.end(), b.from.begin(), b.from.end());
-
-    // return a.to < b.to;
-    return std::lexicographical_compare(a.to.begin(), a.to.end(), b.to.begin(), b.to.end());
+    if (a.size() != b.size())
+        return a.size() < b.size();
+    return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end());
 }
 
 } // namespace
