@@ -75,7 +75,7 @@ void scanForCycleEdges(
     size_t chrootPrefixLen,
     const std::string chrootPrefix,
     const CanonPath & path,
-    const StorePathSet & refs, // drvOutputsStorePathSet
+    const StorePathSet & refs, // otherOutputsStorePathSet
     StoreCycleEdgeVec & edges
 )
 {
@@ -565,19 +565,6 @@ BuildError getDetailedCycleError(const CycleErrorContext & ctx)
 
     const auto & scanOutputsResult = ctx.scanOutputs();
 
-    StorePathSet drvOutputsStorePathSet;
-    for (const auto & outputItem : scanOutputsResult) {
-        // FIXME error: store path '/nix/store/5wiyqkv96nisjny6bpxqp1mzvc9ybn1v-cyclic-fullpaths-buildInputs-bin' contains illegal base-32 character '/'
-        std::string actualPath = outputItem[1];
-        if (!actualPath.starts_with("/nix/store/")) {
-            throw Error(fmt("getDetailedCycleError: bad actualPath: %s", nlohmann::json(actualPath).dump()));
-        }
-        std::string baseName = actualPath.substr(strlen("/nix/store/"));
-        // debug("actualPath=%s baseName=%s", actualPath, baseName);
-        StorePath actualStorePath(baseName);
-        drvOutputsStorePathSet.insert(actualStorePath);
-    }
-
     for (const auto & outputItem : scanOutputsResult) {
 
         std::string outputName = outputItem[0];
@@ -599,6 +586,22 @@ BuildError getDetailedCycleError(const CycleErrorContext & ctx)
 
         auto accessor = makeFSSourceAccessor(hostPath);
 
+        StorePathSet otherOutputsStorePathSet;
+        for (const auto & outputItem : scanOutputsResult) {
+            std::string otherActualPath = outputItem[1];
+            if (otherActualPath == actualPath) {
+                // dont search for self-references in actualPath
+                continue;
+            }
+            if (!otherActualPath.starts_with("/nix/store/")) {
+                throw Error(fmt("getDetailedCycleError: bad otherActualPath: %s", nlohmann::json(otherActualPath).dump()));
+            }
+            std::string otherBaseName = otherActualPath.substr(strlen("/nix/store/"));
+            // debug("otherActualPath=%s otherBaseName=%s", otherActualPath, otherBaseName);
+            StorePath otherActualStorePath(otherBaseName);
+            otherOutputsStorePathSet.insert(otherActualStorePath);
+        }
+
         // remove the chroot prefix path before "/nix/store/"
         // TODO better?
         size_t chrootPrefixLen = hostPath.size() - actualPath.size();
@@ -610,7 +613,7 @@ BuildError getDetailedCycleError(const CycleErrorContext & ctx)
             chrootPrefixLen,
             chrootPrefix,
             CanonPath("/"),
-            drvOutputsStorePathSet,
+            otherOutputsStorePathSet,
             edges
         );
     }

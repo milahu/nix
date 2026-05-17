@@ -91,7 +91,7 @@ void scanForCycleEdges(
     size_t chrootPrefixLen,
     const std::string chrootPrefix,
     const CanonPath & path,
-    const StorePathSet & refs, // drvOutputsStorePathSet
+    const StorePathSet & refs, // otherOutputsStorePathSet
     StoreCycleEdgeVec & edges
 );
 
