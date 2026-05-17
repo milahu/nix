@@ -59,7 +59,7 @@ void CycleEdgeScanSink::operator()(std::string_view data)
 
             edges.push_back({currentFilePath, targetPath});
 
-            debug("found cycle edge: %s → %s (hash: %s)", currentFilePath, targetPath, hash);
+            debug("found cycle edge: %s -> %s (hash: %s)", currentFilePath, targetPath, hash);
         }
     }
 }
@@ -606,13 +606,14 @@ BuildError getDetailedCycleError(const CycleErrorContext & ctx)
 
     // Build detailed error message
     // ANSI_NORMAL because i hate pink
-    std::string cycleDetails = fmt(ANSI_NORMAL "Found %d cycle paths:", multiedges.size());
+    std::string pathsStr = multiedges.size() == 1 ? "path" : "paths";
+    std::string cycleDetails = fmt(ANSI_NORMAL "Found %d cycle %s:", multiedges.size(), pathsStr);
 
     for (size_t i = 0; i < multiedges.size(); i++) {
         auto & multiedge = multiedges[i];
-        cycleDetails += fmt("\n\nCycle %d:", i + 1);
+        cycleDetails += fmt("\n\n%d:", i + 1);
         for (auto & file : multiedge) {
-            cycleDetails += fmt("\n  → %s", file);
+            cycleDetails += fmt("\n  - %s", file);
         }
     }
 
