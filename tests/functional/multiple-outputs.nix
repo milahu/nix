@@ -84,7 +84,6 @@ rec {
   };
 
   # Test for cycle detection with detailed error messages
-  # This creates multiple cycles: a→b→c→a and a→c→b→a
   cyclic =
     (mkDerivation {
       name = "cyclic-outputs";
@@ -94,22 +93,47 @@ rec {
         "bin"
       ];
       builder = builtins.toFile "builder.sh" ''
-        mkdir -p $out/subdir $dev/subdir $bin/subdir
+        mkdir $out $dev $bin
 
-        # First cycle: out → dev → bin → out
-        echo "$dev/subdir/dev-to-bin" > $out/subdir/out-to-dev
-        echo "$bin/subdir/bin-to-out" > $dev/subdir/dev-to-bin
-        echo "$out/subdir/out-to-dev" > $bin/subdir/bin-to-out
+        # cycles: out → dev → bin → out
 
-        # Second cycle: out → bin → dev → out
-        echo "$bin/subdir/bin-to-dev-2" > $out/subdir/out-to-bin-2
-        echo "$dev/subdir/dev-to-out-2" > $bin/subdir/bin-to-dev-2
-        echo "$out/subdir/out-to-bin-2" > $dev/subdir/dev-to-out-2
+        name=fullpaths
+        mkdir {$out,$dev,$bin}/$name
+        echo $dev/$name/dev-to-bin > $out/$name/out-to-dev
+        echo $bin/$name/bin-to-out > $dev/$name/dev-to-bin
+        echo $out/$name/out-to-dev > $bin/$name/bin-to-out
 
-        # Non-cyclic reference (just for complexity)
-        echo "non-cyclic-data" > $out/data
-        echo "non-cyclic-data" > $dev/data
-        echo "non-cyclic-data" > $bin/data
+        name=relpaths
+        mkdir {$out,$dev,$bin}/$name
+        echo ../../$(basename $dev) > $out/$name/out-to-dev
+        echo ../../$(basename $bin) > $dev/$name/dev-to-bin
+        echo ../../$(basename $out) > $bin/$name/bin-to-out
+
+        name=symlinks
+        mkdir {$out,$dev,$bin}/$name
+        ln -s $dev $out/$name/out-to-dev
+        ln -s $bin $dev/$name/dev-to-bin
+        ln -s $out $bin/$name/bin-to-out
+
+        name=hashes
+        mkdir {$out,$dev,$bin}/$name
+        basename $dev | head -c32 > $out/$name/out-to-dev
+        basename $bin | head -c32 > $dev/$name/dev-to-bin
+        basename $out | head -c32 > $bin/$name/bin-to-out
+
+        name=relsymlinks
+        mkdir {$out,$dev,$bin}/$name
+        ln -s -r $dev $out/$name/out-to-dev
+        ln -s -r $bin $dev/$name/dev-to-bin
+        ln -s -r $out $bin/$name/bin-to-out
+
+        # cycles: out → bin → dev → out
+
+        name=fullpaths2
+        mkdir {$out,$dev,$bin}/$name
+        echo $bin/$name/bin-to-dev > $out/$name/out-to-bin
+        echo $dev/$name/dev-to-out > $bin/$name/bin-to-dev
+        echo $out/$name/out-to-bin > $dev/$name/dev-to-out
       '';
     }).out;
 
