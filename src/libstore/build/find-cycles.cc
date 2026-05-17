@@ -497,23 +497,6 @@ std::optional<std::string> findLongestExistingStorePath(
 
             CanonPath canon(rel);
 
-            // alternative to accessor.pathExists
-            // FIXME findLongestExistingStorePath: start=0: end=80: raw=/nix/store/l6jk0s32idk8pdr5wi0kzj19blvkiyky-cyclic-outputs-dev/subdir/dev-to-bin rel=/subdir/dev-to-bin -> no such file
-
-            if (raw == "/nix/store/l6jk0s32idk8pdr5wi0kzj19blvkiyky-cyclic-outputs-dev/subdir/dev-to-bin") {
-                // FIXME findLongestExistingStorePath: start=0: end=80:
-                // raw=/nix/store/l6jk0s32idk8pdr5wi0kzj19blvkiyky-cyclic-outputs-dev/subdir/dev-to-bin
-                // exc=error: path '/nix/store/rngknmkywf75sh5i5pwpd66kz59xkx0a-cyclic-outputs.drv.chroot/root
-                // /nix/store/7k4kll9ph61i9s0l1767gkd8ykk731xj-cyclic-outputs/subdir/dev-to-bin' does not exist
-                // -> ignoring malformed candidate
-
-                // wrong accessor?!
-                // expected: dev = /nix/store/l6jk0s32idk8pdr5wi0kzj19blvkiyky-cyclic-outputs-dev
-                // actual:   out = /nix/store/7k4kll9ph61i9s0l1767gkd8ykk731xj-cyclic-outputs
-                auto info = accessor.lstat(canon);
-                debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s rel=%s -> info.type=%d", startPos, end, raw, rel, info.type);
-            }
-
             if (accessor.pathExists(canon)) {
                 if (!best || normalized.size() > best->size()) {
                     // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s norm=%s rel=%s -> exists + longer than best", startPos, end, raw, normalized, rel);
