@@ -613,8 +613,8 @@ BuildError getDetailedCycleError(const CycleErrorContext & ctx)
 
     // Build detailed error message
     // ANSI_NORMAL because i hate pink
-    std::string pathsStr = multiedges.size() == 1 ? "path" : "paths";
-    std::string cycleDetails = fmt(ANSI_NORMAL "Found %d cycle %s:", multiedges.size(), pathsStr);
+    std::string edgesStr = multiedges.size() == 1 ? "edge" : "edges";
+    std::string cycleDetails = fmt(ANSI_NORMAL "Found %d cycle %s:", multiedges.size(), edgesStr);
 
     for (size_t i = 0; i < multiedges.size(); i++) {
         auto & multiedge = multiedges[i];
