@@ -6,6 +6,11 @@
 // then we have to "to" path
 // so that is the end of a cycle
 
+// no, this is too complex for now
+// this would require to turn the StoreCycleEdge type into a struct
+// where we can also store the raw match string
+// but that extra complexity is usually not worth it
+// because users can just search for the derivation hash instead of the derivation path
 // FIXME the error message should show the raw matches
 // and maybe resolved derivation paths like
 // - hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh -> /nix/store/hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh-x
@@ -22,6 +27,11 @@
 // the first and second edge of the cycle should be sorted in the same order as the derivation's outputs
 // outputs = [ "out" "dev" "bin" ]; # out -> dev -> bin -> out
 // so in some cases, we have to shift or invert the cycle
+
+// TODO also find concatted store paths like
+// $out$out/some/path
+// $out$dev/some/path
+// or is this out of scope?
 
 #include <algorithm>
 #include <exception>
@@ -448,6 +458,7 @@ std::optional<std::string> findLongestExistingStorePath(
 
     size_t end = 0;
 
+    // FIXME can the name ("x") be empty?
     // relative path: "../hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh-x" // 37 bytes
     // absolute path: "/nix/store/hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh-x" // 45 bytes
     const size_t minPathLen = 37;
@@ -482,6 +493,8 @@ std::optional<std::string> findLongestExistingStorePath(
 
         // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s fromDir=%s joined=%s", startPos, end, nlohmann::json(raw).dump(), std::string(fromDir), std::string(joined));
 
+        // FIXME remove this try block
+        // or break it up in multiple smaller try blocks
         try {
 
             auto normalized =
@@ -509,6 +522,8 @@ std::optional<std::string> findLongestExistingStorePath(
             // /foo/bar
             std::string rel = normalized.substr(storePathPrefix.size());
 
+            // TODO do we need this at all?
+            // can we just keep an empty rel path?
             if (rel.empty()) {
                 rel = "/";
             }
@@ -631,6 +646,7 @@ BuildError getDetailedCycleError(const CycleErrorContext & ctx)
 
     if (edges.empty()) {
         debug("no detailed cycle edges found, rethrowing");
+        // TODO modify the error message?
         return ctx.error;
     }
 

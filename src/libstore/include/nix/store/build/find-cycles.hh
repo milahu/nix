@@ -138,6 +138,7 @@ void transformEdgesToMultiedges(
     StoreCycleEdgeVec & multiedges
 );
 
+// TODO remove from header?
 std::optional<std::string> findLongestExistingStorePath(
     SourceAccessor & accessor,
     const std::string & content,
