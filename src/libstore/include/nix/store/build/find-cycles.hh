@@ -4,10 +4,19 @@
 #include "nix/store/store-api.hh"
 #include "nix/store/references.hh"
 #include "nix/util/types.hh"
+#include "nix/util/source-accessor.hh"
+#include "nix/util/posix-source-accessor.hh"
+#include "nix/store/local-store.hh"
 
 #include <string>
 #include <deque>
 #include <vector>
+
+namespace nix {
+class LocalStore;
+class StorePath;
+struct SourceAccessor;
+} // namespace nix
 
 namespace nix {
 
@@ -18,7 +27,15 @@ namespace nix {
  * Example: {"/nix/store/abc-foo/file1", "/nix/store/def-bar/file2"}
  * represents a reference from file1 to file2.
  */
-using StoreCycleEdge = std::deque<std::string>;
+struct StoreCycleEdge {
+    std::string from;
+    std::string to;
+
+    bool operator==(const StoreCycleEdge & other) const
+    {
+        return from == other.from && to == other.to;
+    }
+};
 
 /**
  * A collection of cycle edges found during scanning.
@@ -74,7 +91,25 @@ public:
  * @param refs The set of potentially referenced store paths
  * @param edges Output parameter that accumulates found cycle edges
  */
-void scanForCycleEdges(const CanonPath & path, const StorePathSet & refs, StoreCycleEdgeVec & edges);
+void scanForCycleEdges(
+    LocalStore & store,
+    SourceAccessor & accessor,
+    size_t chrootPrefixLen,
+    const std::string chrootPrefix,
+    const CanonPath & path,
+    const StorePathSet & refs,
+    StoreCycleEdgeVec & edges
+);
+
+void scanForCycleEdges2(
+    LocalStore & store,
+    SourceAccessor & accessor,
+    size_t chrootPrefixLen,
+    const std::string chrootPrefix,
+    const CanonPath & path,
+    const std::map<std::string, StorePath> & hashPathMap,
+    StoreCycleEdgeVec & edges
+);
 
 /**
  * Recursively walk filesystem tree and scan each file for hash references.
@@ -104,6 +139,17 @@ void walkAndScanPath(
  * @param edges Input edges to transform
  * @param multiedges Output parameter with connected paths
  */
-void transformEdgesToMultiedges(StoreCycleEdgeVec & edges, StoreCycleEdgeVec & multiedges);
+void transformEdgesToMultiedges(
+    StoreCycleEdgeVec & edges,
+    StoreCycleEdgeVec & multiedges
+);
+
+std::optional<std::string> findLongestExistingStorePath(
+    SourceAccessor & accessor,
+    const std::string & content,
+    const size_t startPos,
+    // the "to" derivation's outPath: "/nix/store/hash-name"
+    const std::string & storePathPrefix
+);
 
 } // namespace nix

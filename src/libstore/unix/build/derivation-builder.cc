@@ -1635,9 +1635,16 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
 
     // ...TODO indent
     } catch (BuildError & e) {
+
+        debug("derivation-builder.cc 1650 e.what()=%s", e.what());
+
         if (!isCycleError(e)) {
             throw;
         }
+
+        // FIXME deduplicate
+        // cycle detected during topoSort
+        // cycle detected during registerValidPaths
 
         debug("cycle detected during topoSort, analyzing for detailed error report");
 
@@ -1648,10 +1655,45 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
             if (!scratchOutput)
                 continue;
 
-            auto actualPath = realPathInHost(store.printStorePath(*scratchOutput));
+            // "/nix/store/nim5yyh540r583888k7fjnmphn5nw3j1-cyclic-outputs-bin"
+            debug(
+                "derivation-builder.cc 1650 store.printStorePath(*scratchOutput)=%s",
+                PathFmt(store.printStorePath(*scratchOutput))
+            );
+            // "/nix/store/rngknmkywf75sh5i5pwpd66kz59xkx0a-cyclic-outputs.drv.chroot/root/nix/store/nim5yyh540r583888k7fjnmphn5nw3j1-cyclic-outputs-bin"
+            debug(
+                "derivation-builder.cc 1650 realPathInHost(store.printStorePath(*scratchOutput))=%s",
+                PathFmt(realPathInHost(store.printStorePath(*scratchOutput)))
+            );
+
+            // auto actualPath = realPathInHost(store.printStorePath(*scratchOutput));
+            // /nix/store/nim5yyh540r583888k7fjnmphn5nw3j1-cyclic-outputs-bin
+            std::string actualPath = store.printStorePath(*scratchOutput);
+
+            // remove the chroot prefix path before "/nix/store/"
+            // TODO better?
+            // /nix/store/rngknmkywf75sh5i5pwpd66kz59xkx0a-cyclic-outputs.drv.chroot/root/nix/store/nim5yyh540r583888k7fjnmphn5nw3j1-cyclic-outputs-bin
+            std::string hostPath = std::string(realPathInHost(actualPath));
+            assert(hostPath.ends_with(actualPath));
+            size_t chrootPrefixLen = hostPath.size() - actualPath.size();
+            const std::string chrootPrefix = hostPath.substr(0, chrootPrefixLen);
+
             debug("scanning output '%s' at path '%s' for cycle edges", outputName, PathFmt(actualPath));
 
-            scanForCycleEdges(CanonPath(std::string(actualPath)), referenceablePaths, edges);
+            auto pathAccessor = makeFSSourceAccessor(
+                // /nix/store/rngknmkywf75sh5i5pwpd66kz59xkx0a-cyclic-outputs.drv.chroot/root/nix/store/nim5yyh540r583888k7fjnmphn5nw3j1-cyclic-outputs-bin
+                realPathInHost(actualPath)
+            );
+
+            scanForCycleEdges(
+                store,
+                *pathAccessor,
+                chrootPrefixLen,
+                chrootPrefix,
+                CanonPath("/"),
+                referenceablePaths,
+                edges
+            );
         }
 
         if (edges.empty()) {
@@ -1669,10 +1711,42 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
         std::string cycleDetails = fmt("Detailed cycle analysis found %d cycle path(s):", multiedges.size());
 
         for (size_t i = 0; i < multiedges.size(); i++) {
-            auto & multiedge = multiedges[i];
+
+            const auto & e = multiedges[i];
+
             cycleDetails += fmt("\n\nCycle %d:", i + 1);
-            for (auto & file : multiedge) {
-                cycleDetails += fmt("\n  → %s", file);
+
+            std::string current = e.from;
+
+            cycleDetails += fmt("\n  → %s", current);
+
+            std::set<std::string> seen;
+            seen.insert(current);
+
+            const auto * edge = &e;
+
+            while (true) {
+
+                cycleDetails += fmt("\n  → %s", edge->to);
+
+                if (seen.count(edge->to))
+                    break;
+
+                seen.insert(edge->to);
+                current = edge->to;
+
+                // NOTE: this assumes multiedges is already ordered path-wise
+                auto it = std::find_if(
+                    multiedges.begin(),
+                    multiedges.end(),
+                    [&](const StoreCycleEdge & x) {
+                        return x.from == current;
+                    });
+
+                if (it == multiedges.end())
+                    break;
+
+                edge = &(*it);
             }
         }
 
@@ -2097,7 +2171,25 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
             auto actualPath = store.toRealPath(newInfo.path);
             debug("scanning registered output '%s' at path '%s' for cycle edges", outputName, PathFmt(actualPath));
 
-            scanForCycleEdges(CanonPath(std::string(actualPath)), referenceablePaths, edges);
+            // remove the chroot prefix path before "/nix/store/"
+            // TODO better?
+            std::string actualPathStr = std::string(actualPath);
+            std::string hostPath = std::string(realPathInHost(actualPath));
+            assert(hostPath.ends_with(actualPathStr));
+            size_t chrootPrefixLen = hostPath.size() - actualPathStr.size();
+            const std::string chrootPrefix = hostPath.substr(0, chrootPrefixLen);
+
+            auto pathAccessor = makeFSSourceAccessor(realPathInHost(actualPath));
+
+            scanForCycleEdges(
+                store,
+                *pathAccessor,
+                chrootPrefixLen,
+                chrootPrefix,
+                CanonPath("/"),
+                referenceablePaths,
+                edges
+            );
         }
 
         if (edges.empty()) {
@@ -2115,10 +2207,42 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
         std::string cycleDetails = fmt("Detailed cycle analysis found %d cycle path(s):", multiedges.size());
 
         for (size_t i = 0; i < multiedges.size(); i++) {
-            auto & multiedge = multiedges[i];
+
+            const auto & e = multiedges[i];
+
             cycleDetails += fmt("\n\nCycle %d:", i + 1);
-            for (auto & file : multiedge) {
-                cycleDetails += fmt("\n  → %s", file);
+
+            std::string current = e.from;
+
+            cycleDetails += fmt("\n  → %s", current);
+
+            std::set<std::string> seen;
+            seen.insert(current);
+
+            const auto * edge = &e;
+
+            while (true) {
+
+                cycleDetails += fmt("\n  → %s", edge->to);
+
+                if (seen.count(edge->to))
+                    break;
+
+                seen.insert(edge->to);
+                current = edge->to;
+
+                // NOTE: this assumes multiedges is already ordered path-wise
+                auto it = std::find_if(
+                    multiedges.begin(),
+                    multiedges.end(),
+                    [&](const StoreCycleEdge & x) {
+                        return x.from == current;
+                    });
+
+                if (it == multiedges.end())
+                    break;
+
+                edge = &(*it);
             }
         }
 

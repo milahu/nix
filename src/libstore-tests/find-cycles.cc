@@ -45,13 +45,21 @@ class TransformEdgesToMultiedgesTest : public ::testing::TestWithParam<Transform
 {};
 
 namespace {
+
 // Helper to convert vector<vector<string>> to StoreCycleEdgeVec
 StoreCycleEdgeVec toStoreCycleEdgeVec(const std::vector<std::vector<std::string>> & edges)
 {
     StoreCycleEdgeVec result;
     result.reserve(edges.size());
     for (const auto & edge : edges) {
-        result.emplace_back(edge.begin(), edge.end());
+        if (edge.size() < 2)
+            continue;
+        for (size_t i = 0; i + 1 < edge.size(); ++i) {
+            result.push_back(StoreCycleEdge{
+                edge[i], // from
+                edge[i + 1] // to
+            });
+        }
     }
     return result;
 }
@@ -59,10 +67,14 @@ StoreCycleEdgeVec toStoreCycleEdgeVec(const std::vector<std::vector<std::string>
 // Comparator for sorting multiedges deterministically
 bool compareMultiedges(const StoreCycleEdge & a, const StoreCycleEdge & b)
 {
-    if (a.size() != b.size())
-        return a.size() < b.size();
-    return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end());
+    if (a.from != b.from)
+        // return a.from < b.from;
+        return std::lexicographical_compare(a.from.begin(), a.from.end(), b.from.begin(), b.from.end());
+
+    // return a.to < b.to;
+    return std::lexicographical_compare(a.to.begin(), a.to.end(), b.to.begin(), b.to.end());
 }
+
 } // namespace
 
 TEST_P(TransformEdgesToMultiedgesTest, TransformEdges)
