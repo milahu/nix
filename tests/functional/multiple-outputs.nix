@@ -229,6 +229,39 @@ rec {
       '';
     }).out;
 
+  cyclic-fullpaths-minimal =
+    (mkDerivation {
+      name = "cyclic-fullpaths-minimal";
+      outputs = [
+        "out"
+        "dev"
+      ];
+      builder = builtins.toFile "builder.sh" ''
+        mkdir $out $dev
+        # cycle: out → dev → out
+        name=fullpaths-minimal
+        mkdir {$out,$dev}/$name
+        echo $dev/$name/dev-to-out > $out/$name/out-to-dev
+        echo $out/$name/out-to-dev > $dev/$name/dev-to-out
+      '';
+    }).out;
+
+  nocycle-fullpaths-backref =
+    (mkDerivation {
+      name = "nocycle-fullpaths-backref";
+      outputs = [
+        "out"
+        "dev"
+      ];
+      builder = builtins.toFile "builder.sh" ''
+        mkdir $out $dev
+        name=fullpaths
+        mkdir {$out,$dev}/$name
+        echo sometext > $out/$name/somefile
+        echo $out/$name/somefile > $dev/$name/dev-to-out
+      '';
+    }).out;
+
   e = mkDerivation {
     name = "multiple-outputs-e";
     outputs = [
