@@ -207,6 +207,28 @@ rec {
       '';
     }).out;
 
+  cyclic-fullpaths-duplicate =
+    (mkDerivation {
+      name = "cyclic-fullpaths-duplicate";
+      outputs = [
+        "out"
+        "dev"
+        "bin"
+      ];
+      builder = builtins.toFile "builder.sh" ''
+        mkdir $out $dev $bin
+        # cycle: out → dev → bin → out
+        name=fullpaths
+        mkdir {$out,$dev,$bin}/$name
+        echo $dev/$name/dev-to-bin >> $out/$name/out-to-dev
+        echo $dev/$name/dev-to-bin >> $out/$name/out-to-dev
+        echo $bin/$name/bin-to-out >> $dev/$name/dev-to-bin
+        echo $bin/$name/bin-to-out >> $dev/$name/dev-to-bin
+        echo $out/$name/out-to-dev >> $bin/$name/bin-to-out
+        echo $out/$name/out-to-dev >> $bin/$name/bin-to-out
+      '';
+    }).out;
+
   e = mkDerivation {
     name = "multiple-outputs-e";
     outputs = [
