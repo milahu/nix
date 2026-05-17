@@ -181,6 +181,32 @@ rec {
       buildCommand = "echo c > $out";
     }).out;
 
+  cyclic-fullpaths-self =
+    (mkDerivation {
+      name = "cyclic-fullpaths-self";
+      outputs = [
+        "out"
+        "dev"
+        "bin"
+      ];
+      buildCommand = ''
+        mkdir $out $dev $bin
+        # cycle: out → dev → bin → out
+        name=fullpaths
+        mkdir {$out,$dev,$bin}/$name
+        echo $dev/$name/dev-to-bin > $out/$name/out-to-dev
+        echo $bin/$name/bin-to-out > $dev/$name/dev-to-bin
+        echo $out/$name/out-to-dev > $bin/$name/bin-to-out
+
+        # no cycle
+        name=fullpaths-self
+        mkdir {$out,$dev,$bin}/$name
+        echo $out > $out/$name/out
+        echo $dev > $dev/$name/dev
+        echo $bin > $bin/$name/bin
+      '';
+    }).out;
+
   e = mkDerivation {
     name = "multiple-outputs-e";
     outputs = [
