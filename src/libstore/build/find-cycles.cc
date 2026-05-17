@@ -462,33 +462,33 @@ std::optional<std::string> findLongestExistingStorePath(
         std::string raw =
             content.substr(startPos, end - startPos);
 
-        // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s", startPos, end, raw);
+        // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s", startPos, end, nlohmann::json(raw).dump());
 
         std::filesystem::path fromDir = std::filesystem::path(from).parent_path();
 
         // resolve relative paths relative to fromDir
         std::filesystem::path joined = fromDir / raw;
 
-        // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s fromDir=%s joined=%s", startPos, end, raw, std::string(fromDir), std::string(joined));
+        // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s fromDir=%s joined=%s", startPos, end, nlohmann::json(raw).dump(), std::string(fromDir), std::string(joined));
 
         try {
 
             auto normalized =
                 std::filesystem::weakly_canonical(joined).string();
 
-            // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s norm=%s", startPos, end, raw, normalized);
+            // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s norm=%s", startPos, end, nlohmann::json(raw).dump(), normalized);
 
             if (normalized.ends_with("/")) {
                 // remove trailing slash
                 normalized = normalized.substr(0, normalized.size() - 1);
-                // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s norm=%s -> removed trailing '/'", startPos, end, raw, normalized);
+                // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s norm=%s -> removed trailing '/'", startPos, end, nlohmann::json(raw).dump(), normalized);
             }
 
             // debug("findLongestExistingStorePath: normalized=%s", normalized);
 
             // must belong to this output
             if (!normalized.starts_with(storePathPrefix)) {
-                // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s norm=%s -> wrong prefix", startPos, end, raw, normalized);
+                // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s norm=%s -> wrong prefix", startPos, end, nlohmann::json(raw).dump(), normalized);
                 continue;
             }
 
@@ -506,23 +506,23 @@ std::optional<std::string> findLongestExistingStorePath(
 
             if (accessor.pathExists(canon)) {
                 if (!best || normalized.size() > best->size()) {
-                    // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s norm=%s rel=%s -> exists + longer than best", startPos, end, raw, normalized, rel);
-                    debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s rel=%s -> exists + longer than best", startPos, end, raw, rel);
+                    // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s norm=%s rel=%s -> exists + longer than best", startPos, end, nlohmann::json(raw).dump(), normalized, rel);
+                    debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s rel=%s -> exists + longer than best", startPos, end, nlohmann::json(raw).dump(), rel);
                     best = normalized;
                 }
                 else {
-                    // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s norm=%s rel=%s -> exists + shorter than best", startPos, end, raw, normalized, rel);
-                    debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s rel=%s -> exists + shorter than best", startPos, end, raw, rel);
+                    // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s norm=%s rel=%s -> exists + shorter than best", startPos, end, nlohmann::json(raw).dump(), normalized, rel);
+                    debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s rel=%s -> exists + shorter than best", startPos, end, nlohmann::json(raw).dump(), rel);
                 }
             }
             else {
-                // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s norm=%s rel=%s -> no such file", startPos, end, raw, normalized, rel);
-                debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s rel=%s -> no such file", startPos, end, raw, rel);
+                // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s norm=%s rel=%s -> no such file", startPos, end, nlohmann::json(raw).dump(), normalized, rel);
+                debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s rel=%s -> no such file", startPos, end, nlohmann::json(raw).dump(), rel);
             }
         }
         catch (std::exception & e) {
             // ignore malformed candidates
-            debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s exc=%s -> ignoring malformed candidate", startPos, end, raw, e.what());
+            debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s exc=%s -> ignoring malformed candidate", startPos, end, nlohmann::json(raw).dump(), e.what());
         }
     }
 
