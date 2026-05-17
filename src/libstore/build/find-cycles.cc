@@ -129,8 +129,9 @@ void scanForCycleEdges2(
     // FIXME this should be a bytestring (?)
     std::string content;
     if (info.type == SourceAccessor::tSymlink) {
-        debug("scanForCycleEdges2: path is a symlink: %s", path);
         content = accessor.readLink(path);
+        // content can be anything, so we escape it to a JSON string
+        debug("scanForCycleEdges2: path is a symlink: %s -> content=%s", path, nlohmann::json(content).dump());
     } else if (info.type == SourceAccessor::tRegular) {
         debug("scanForCycleEdges2: path is a file: %s", path);
         auto file = accessor.readFile(path);
@@ -236,6 +237,7 @@ void scanForCycleEdges2(
                 **targetAccessor,
                 content,
                 startPos,
+                from,
                 to
             );
             if (!maybePath) {
@@ -421,6 +423,7 @@ std::optional<std::string> findLongestExistingStorePath(
     SourceAccessor & accessor,
     const std::string & content,
     const size_t startPos,
+    const std::string & from,
     // the "to" derivation's outPath: "/nix/store/hash-name"
     const std::string & storePathPrefix
 )
@@ -461,10 +464,17 @@ std::optional<std::string> findLongestExistingStorePath(
 
         // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s", startPos, end, raw);
 
+        std::filesystem::path fromDir = std::filesystem::path(from).parent_path();
+
+        // resolve relative paths relative to fromDir
+        std::filesystem::path joined = fromDir / raw;
+
+        // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s fromDir=%s joined=%s", startPos, end, raw, std::string(fromDir), std::string(joined));
+
         try {
 
             auto normalized =
-                std::filesystem::weakly_canonical(raw).string();
+                std::filesystem::weakly_canonical(joined).string();
 
             // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s norm=%s", startPos, end, raw, normalized);
 
@@ -475,9 +485,6 @@ std::optional<std::string> findLongestExistingStorePath(
             }
 
             // debug("findLongestExistingStorePath: normalized=%s", normalized);
-
-            // FIXME handle relative paths like "../hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh-x"
-            // so at least normalized must include "/hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh-x"
 
             // must belong to this output
             if (!normalized.starts_with(storePathPrefix)) {
