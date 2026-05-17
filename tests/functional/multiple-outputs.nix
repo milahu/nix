@@ -137,6 +137,50 @@ rec {
       '';
     }).out;
 
+  cyclic-fullpaths-buildInputs =
+    (mkDerivation {
+      name = "cyclic-fullpaths-buildInputs";
+      outputs = [
+        "out"
+        "dev"
+        "bin"
+      ];
+      buildCommand = ''
+        mkdir $out $dev $bin
+        # cycle: out → dev → bin → out
+        name=fullpaths
+        mkdir {$out,$dev,$bin}/$name
+        echo $dev/$name/dev-to-bin > $out/$name/out-to-dev
+        echo $bin/$name/bin-to-out > $dev/$name/dev-to-bin
+        echo $out/$name/out-to-dev > $bin/$name/bin-to-out
+
+        # no cycle
+        name=fullpaths-buildInputs
+        mkdir {$out,$dev,$bin}/$name
+        echo ${cyclic-fullpaths-buildInputs-a} > $out/$name/a
+        echo ${cyclic-fullpaths-buildInputs-b} > $out/$name/a
+        echo ${cyclic-fullpaths-buildInputs-c} > $out/$name/a
+      '';
+    }).out;
+
+  cyclic-fullpaths-buildInputs-a =
+    (mkDerivation {
+      name = "cyclic-fullpaths-buildInputs-a";
+      buildCommand = "echo a > $out";
+    }).out;
+
+  cyclic-fullpaths-buildInputs-b =
+    (mkDerivation {
+      name = "cyclic-fullpaths-buildInputs-b";
+      buildCommand = "echo b > $out";
+    }).out;
+
+  cyclic-fullpaths-buildInputs-c =
+    (mkDerivation {
+      name = "cyclic-fullpaths-buildInputs-c";
+      buildCommand = "echo c > $out";
+    }).out;
+
   e = mkDerivation {
     name = "multiple-outputs-e";
     outputs = [
