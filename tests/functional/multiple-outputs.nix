@@ -158,8 +158,8 @@ rec {
         name=fullpaths-buildInputs
         mkdir {$out,$dev,$bin}/$name
         echo ${cyclic-fullpaths-buildInputs-a} > $out/$name/a
-        echo ${cyclic-fullpaths-buildInputs-b} > $out/$name/a
-        echo ${cyclic-fullpaths-buildInputs-c} > $out/$name/a
+        echo ${cyclic-fullpaths-buildInputs-b} > $out/$name/b
+        echo ${cyclic-fullpaths-buildInputs-c} > $out/$name/c
       '';
     }).out;
 
