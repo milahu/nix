@@ -618,7 +618,7 @@ BuildError getDetailedCycleError(const CycleErrorContext & ctx)
 
     for (size_t i = 0; i < multiedges.size(); i++) {
         auto & multiedge = multiedges[i];
-        cycleDetails += fmt("\n\n%d:", i + 1);
+        cycleDetails += fmt("\n%d:", i + 1);
         for (auto & file : multiedge) {
             cycleDetails += fmt("\n  - %s", file);
         }
