@@ -136,7 +136,6 @@ void scanForCycleEdges2(
         }
         return;
     }
-    // FIXME this should be a bytestring (?)
     std::string content;
     if (info.type == SourceAccessor::tSymlink) {
         content = accessor.readLink(path);
@@ -153,41 +152,15 @@ void scanForCycleEdges2(
         return;
     }
     for (auto & [hash, targetStorePath] : hashPathMap) {
-        // TODO also check filename
         if (content.find(hash) == std::string::npos)
             continue;
-        /*
-        FIXME the "from" path is wrong
-        example:
-        scanForCycleEdges2: found hash in path:
-        path=/subdir/out-to-bin-2
-        hash=nim5yyh540r583888k7fjnmphn5nw3j1
-        from=/nix/store/nim5yyh540r583888k7fjnmphn5nw3j1-cyclic-outputs-bin
-        to=/nix/store/nim5yyh540r583888k7fjnmphn5nw3j1-cyclic-outputs-bin
-        */
 
-        // auto it = hashPathMap.find(hash);
-        // if (it == hashPathMap.end())
-        //     continue;
-        // StorePath fromStore = it->second;
-        // const auto from = store.printStorePath(fromStore);
-
-        // actual: from=/nix/store/rngknmkywf75sh5i5pwpd66kz59xkx0a-cyclic-outputs.drv.chroot/root/nix/store/7k4kll9ph61i9s0l1767gkd8ykk731xj-cyclic-outputs/subdir/out-to-bin-2
-        // expected: from=/nix/store/7k4kll9ph61i9s0l1767gkd8ykk731xj-cyclic-outputs/subdir/out-to-bin-2
         auto from = accessor.showPath(path);
 
         // remove the chroot prefix path before "/nix/store/"
         // TODO better?
         if (chrootPrefixLen > 0 && from.size() >= chrootPrefixLen)
             from.erase(0, chrootPrefixLen);
-
-        // error: ‘const class nix::CanonPath’ has no member named ‘toString’
-        // auto from = path.toString();
-
-        // // actual: from=/nix/store//subdir/out-to-bin-2
-        // // expected: from=/nix/store/7k4kll9ph61i9s0l1767gkd8ykk731xj-cyclic-outputs/subdir/out-to-bin-2
-        // const std::string storeRoot = "/nix/store";
-        // std::string from = storeRoot + "/" + path.abs();
 
         const auto to = store.printStorePath(targetStorePath);
         // to=/nix/store/l6jk0s32idk8pdr5wi0kzj19blvkiyky-cyclic-outputs-dev
@@ -235,17 +208,12 @@ void scanForCycleEdges2(
             throw;
         }
 
-        debug("targetAccessor.pathExists(\"/\")=%s", (**targetAccessor).pathExists(CanonPath("/")));
-
         for (size_t startPos = 0; startPos < content.size(); ++startPos) {
             // paths start with '/' or '.'
             if (content[startPos] != '/' && content[startPos] != '.')
                 continue;
             debug("scanForCycleEdges2: calling findLongestExistingStorePath");
             auto maybePath = findLongestExistingStorePath(
-                // FIXME error: invalid initialization of reference of type ‘nix::SourceAccessor&’ from expression of type ‘nix::ref<nix::SourceAccessor>’
-                **targetAccessor,
-                content,
                 startPos,
                 from,
                 to
