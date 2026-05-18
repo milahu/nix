@@ -219,6 +219,25 @@ rec {
       '';
     }).out;
 
+  cyclic-basenames =
+    (mkDerivation {
+      name = "cyclic-basenames";
+      outputs = [
+        "out"
+        "dev"
+        "bin"
+      ];
+      builder = builtins.toFile "builder.sh" ''
+        mkdir $out $dev $bin
+        # cycle: out → dev → bin → out
+        name=basenames
+        mkdir {$out,$dev,$bin}/$name
+        basename $dev > $out/$name/out-to-dev
+        basename $bin > $dev/$name/dev-to-bin
+        basename $out > $bin/$name/bin-to-out
+      '';
+    }).out;
+
   cyclic-relsymlinks =
     (mkDerivation {
       name = "cyclic-relsymlinks";
