@@ -677,10 +677,15 @@ BuildError getDetailedCycleError(const CycleErrorContext & ctx)
     //     "The build cannot proceed because the outputs reference each other.";
 
     // Add hint with temp paths for debugging
+    // "nix-build --keep-failed" also says:
+    // note: keeping build directory "/nix/var/nix/builds/nix-1111111-222222222/build"
+    // but here we care about the build outputs
     if (settings.keepFailed || verbosity >= lvlDebug) {
         cycleDetails +=
-            fmt("\n\nNote: Build outputs are kept for inspection.\n"
-                "You can examine the files listed above to understand the cycle.");
+            // fmt("\n\nNote: Build outputs are kept for inspection.\n"
+            //     "You can examine the files listed above to understand the cycle.");
+            // fmt("\n\nNote: The build outputs are kept in the Nix store for manual inspection.");
+            fmt("\n\nNote: The build outputs are kept for manual inspection.");
     }
 
     // Throw new error with original message + cycle details
