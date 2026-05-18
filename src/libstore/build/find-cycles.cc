@@ -170,7 +170,6 @@ void scanForCycleEdges2(
             from,
             to
         );
-        // edges.push_back(StoreCycleEdge{from, to});
         // try to find the actual file path in "to"
         // const auto storePathPrefix = store.printStorePath(actualPath); // missing: actualPath
         // debug("scanForCycleEdges2: storePathPrefix=%s", storePathPrefix);

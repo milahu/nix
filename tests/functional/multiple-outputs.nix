@@ -238,6 +238,47 @@ rec {
       '';
     }).out;
 
+  cyclic-fullpaths-dirpaths =
+    (mkDerivation {
+      name = "cyclic-fullpaths-dirpaths";
+      outputs = [
+        "out"
+        "dev"
+        "bin"
+      ];
+      builder = builtins.toFile "builder.sh" ''
+        mkdir $out $dev $bin
+        # cycle: out → dev → bin → out
+        name=fullpaths-dirpaths
+        mkdir {$out,$dev,$bin}/$name
+        mkdir -p $out/$name/$dev
+        mkdir -p $dev/$name/$bin
+        mkdir -p $bin/$name/$out
+      '';
+    }).out;
+
+  cyclic-fullpaths-filepaths =
+    (mkDerivation {
+      name = "cyclic-fullpaths-filepaths";
+      outputs = [
+        "out"
+        "dev"
+        "bin"
+      ];
+      builder = builtins.toFile "builder.sh" ''
+        mkdir $out $dev $bin
+        # cycle: out → dev → bin → out
+        name=fullpaths-filepaths
+        mkdir {$out,$dev,$bin}/$name
+        mkdir -p $out/$name/''${dev%/*}
+        mkdir -p $dev/$name/''${bin%/*}
+        mkdir -p $bin/$name/''${out%/*}
+        echo out-to-dev > $out/$name/$dev
+        echo dev-to-bin > $dev/$name/$bin
+        echo bin-to-out > $bin/$name/$out
+      '';
+    }).out;
+
   cyclic-fullpaths-buildInputs =
     (mkDerivation {
       name = "cyclic-fullpaths-buildInputs";
