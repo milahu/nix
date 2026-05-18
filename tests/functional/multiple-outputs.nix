@@ -127,6 +127,12 @@ rec {
         ln -s -r $bin $dev/$name/dev-to-bin
         ln -s -r $out $bin/$name/bin-to-out
 
+        name=fullpaths-nocycles
+        mkdir {$out,$dev,$bin}/$name
+        echo /nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-a > $out/$name/a
+        echo /nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-b > $dev/$name/b
+        echo /nix/store/cccccccccccccccccccccccccccccccc-c > $bin/$name/c
+
         # cycles: out → bin → dev → out
 
         name=fullpaths2
@@ -134,6 +140,101 @@ rec {
         echo $bin/$name/bin-to-dev > $out/$name/out-to-bin
         echo $dev/$name/dev-to-out > $bin/$name/bin-to-dev
         echo $out/$name/out-to-bin > $dev/$name/dev-to-out
+      '';
+    }).out;
+
+  cyclic-fullpaths =
+    (mkDerivation {
+      name = "cyclic-fullpaths";
+      outputs = [
+        "out"
+        "dev"
+        "bin"
+      ];
+      builder = builtins.toFile "builder.sh" ''
+        mkdir $out $dev $bin
+        # cycle: out → dev → bin → out
+        name=fullpaths
+        mkdir {$out,$dev,$bin}/$name
+        echo $dev/$name/dev-to-bin > $out/$name/out-to-dev
+        echo $bin/$name/bin-to-out > $dev/$name/dev-to-bin
+        echo $out/$name/out-to-dev > $bin/$name/bin-to-out
+      '';
+    }).out;
+
+  cyclic-relpaths =
+    (mkDerivation {
+      name = "cyclic-relpaths";
+      outputs = [
+        "out"
+        "dev"
+        "bin"
+      ];
+      builder = builtins.toFile "builder.sh" ''
+        mkdir $out $dev $bin
+        # cycle: out → dev → bin → out
+        name=relpaths
+        mkdir {$out,$dev,$bin}/$name
+        echo ../../$(basename $dev) > $out/$name/out-to-dev
+        echo ../../$(basename $bin) > $dev/$name/dev-to-bin
+        echo ../../$(basename $out) > $bin/$name/bin-to-out
+      '';
+    }).out;
+
+  cyclic-symlinks =
+    (mkDerivation {
+      name = "cyclic-symlinks";
+      outputs = [
+        "out"
+        "dev"
+        "bin"
+      ];
+      builder = builtins.toFile "builder.sh" ''
+        mkdir $out $dev $bin
+        # cycle: out → dev → bin → out
+        name=symlinks
+        mkdir {$out,$dev,$bin}/$name
+        ln -s $dev $out/$name/out-to-dev
+        ln -s $bin $dev/$name/dev-to-bin
+        ln -s $out $bin/$name/bin-to-out
+      '';
+    }).out;
+
+  cyclic-hashes =
+    (mkDerivation {
+      name = "cyclic-hashes";
+      outputs = [
+        "out"
+        "dev"
+        "bin"
+      ];
+      builder = builtins.toFile "builder.sh" ''
+        mkdir $out $dev $bin
+        # cycle: out → dev → bin → out
+        name=hashes
+        mkdir {$out,$dev,$bin}/$name
+        basename $dev | head -c32 > $out/$name/out-to-dev
+        basename $bin | head -c32 > $dev/$name/dev-to-bin
+        basename $out | head -c32 > $bin/$name/bin-to-out
+      '';
+    }).out;
+
+  cyclic-relsymlinks =
+    (mkDerivation {
+      name = "cyclic-relsymlinks";
+      outputs = [
+        "out"
+        "dev"
+        "bin"
+      ];
+      builder = builtins.toFile "builder.sh" ''
+        mkdir $out $dev $bin
+        # cycle: out → dev → bin → out
+        name=relsymlinks
+        mkdir {$out,$dev,$bin}/$name
+        ln -s -r $dev $out/$name/out-to-dev
+        ln -s -r $bin $dev/$name/dev-to-bin
+        ln -s -r $out $bin/$name/bin-to-out
       '';
     }).out;
 
