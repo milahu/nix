@@ -127,6 +127,21 @@ rec {
         ln -s -r $bin $dev/$name/dev-to-bin
         ln -s -r $out $bin/$name/bin-to-out
 
+        name=fullpaths-dirpaths
+        mkdir {$out,$dev,$bin}/$name
+        mkdir -p $out/$name/$dev
+        mkdir -p $dev/$name/$bin
+        mkdir -p $bin/$name/$out
+
+        name=fullpaths-filepaths
+        mkdir {$out,$dev,$bin}/$name
+        mkdir -p $out/$name/''${dev%/*}
+        mkdir -p $dev/$name/''${bin%/*}
+        mkdir -p $bin/$name/''${out%/*}
+        echo out-to-dev > $out/$name/$dev
+        echo dev-to-bin > $dev/$name/$bin
+        echo bin-to-out > $bin/$name/$out
+
         name=fullpaths-nocycles
         mkdir {$out,$dev,$bin}/$name
         echo /nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-a > $out/$name/a
