@@ -138,16 +138,6 @@ void transformEdgesToMultiedges(
     StoreCycleEdgeVec & multiedges
 );
 
-// TODO remove from header?
-std::optional<std::string> findLongestExistingStorePath(
-    SourceAccessor & accessor,
-    const std::string & content,
-    const size_t startPos,
-    const std::string & from,
-    // the "to" derivation's outPath: "/nix/store/hash-name"
-    const std::string & storePathPrefix
-);
-
 struct CycleErrorContext {
     const BuildError & error;
     LocalStore & store;

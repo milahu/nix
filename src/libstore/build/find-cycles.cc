@@ -113,78 +113,83 @@ void scanForCycleEdges(
 
 void scanForCycleEdges2(
     LocalStore & store,
-    SourceAccessor & accessor,
+    SourceAccessor & fromDrvAccessor,
     size_t chrootPrefixLen,
     const std::string chrootPrefix,
-    const CanonPath & path,
+    // fromFileRelPath = "/path/to/file"
+    const CanonPath & fromFileRelPath,
     const std::map<std::string, StorePath> & hashPathMap,
-    StoreCycleEdgeVec & edges
+    StoreCycleEdgeVec & cycleEdges
 )
 {
-    auto info = accessor.lstat(path);
-    if (info.type == SourceAccessor::tDirectory) {
-        debug("scanForCycleEdges2: path is a directory: %s", path);
-        for (const auto & [name, type] : accessor.readDirectory(path)) {
-            scanForCycleEdges2(
-                store,
-                accessor,
-                chrootPrefixLen,
-                chrootPrefix,
-                path / name,
-                hashPathMap,
-                edges);
-        }
-        return;
-    }
-    std::string content;
-    if (info.type == SourceAccessor::tSymlink) {
-        content = accessor.readLink(path);
+    // debug("scanForCycleEdges2: fromFileRelPath=%s", fromFileRelPath);
+
+    auto fromFileInfo = fromDrvAccessor.lstat(fromFileRelPath);
+
+    // read file
+    std::string fromFileContent;
+    if (fromFileInfo.type == SourceAccessor::tSymlink) {
+        fromFileContent = fromDrvAccessor.readLink(fromFileRelPath);
         // content can be anything, so we escape it to a JSON string
-        debug("scanForCycleEdges2: path is a symlink: %s -> content=%s", path, nlohmann::json(content).dump());
-    } else if (info.type == SourceAccessor::tRegular) {
-        debug("scanForCycleEdges2: path is a file: %s", path);
-        auto file = accessor.readFile(path);
-        if (file.empty())
-            return;
-        content = file;
+        debug("scanForCycleEdges2: fromFileRelPath is a symlink: %s -> fromFileContent=%s", fromFileRelPath, nlohmann::json(fromFileContent).dump());
+    } else if (fromFileInfo.type == SourceAccessor::tRegular) {
+        debug("scanForCycleEdges2: fromFileRelPath is a file: %s", fromFileRelPath);
+        // TODO read file in chunks
+        // otherwise with large files, we can run out of memory
+        auto _fromFileContent = fromDrvAccessor.readFile(fromFileRelPath);
+        // fromFileContent can be empty, but we can still find a match in fromFilePathStr
+        fromFileContent = _fromFileContent;
+    } else if (fromFileInfo.type == SourceAccessor::tDirectory) {
+        debug("scanForCycleEdges2: fromFileRelPath is a directory: %s", fromFileRelPath);
+        // fromFileContent is empty, but we can still find a match in fromFilePathStr
     } else {
-        debug("scanForCycleEdges2: path is of unknown type: %s", path);
+        debug("scanForCycleEdges2: fromFileRelPath is of unknown type: %s", fromFileRelPath);
         return;
     }
-    for (auto & [hash, targetStorePath] : hashPathMap) {
-        if (content.find(hash) == std::string::npos)
-            continue;
 
-        auto from = accessor.showPath(path);
+    // fromFilePathStr = "/nix/store/hash-name/path/to/file"
+    auto fromFilePathStr = fromDrvAccessor.showPath(fromFileRelPath);
 
-        // remove the chroot prefix path before "/nix/store/"
-        // TODO better?
-        if (chrootPrefixLen > 0 && from.size() >= chrootPrefixLen)
-            from.erase(0, chrootPrefixLen);
+    // remove the chroot prefix path before "/nix/store/"
+    // TODO better?
+    if (chrootPrefixLen > 0 && fromFilePathStr.size() >= chrootPrefixLen)
+        fromFilePathStr.erase(0, chrootPrefixLen);
 
-        const auto to = store.printStorePath(targetStorePath);
-        // to=/nix/store/l6jk0s32idk8pdr5wi0kzj19blvkiyky-cyclic-outputs-dev
-        debug("scanForCycleEdges2: found hash in path: path=%s hash=%s from=%s to=%s -> trying to find the actual file path in 'to'",
-            path,
-            hash,
-            from,
-            to
-        );
-        // try to find the actual file path in "to"
-        // const auto storePathPrefix = store.printStorePath(actualPath); // missing: actualPath
-        // debug("scanForCycleEdges2: storePathPrefix=%s", storePathPrefix);
+    // fromDirPath = "/nix/store/hash-name/path/to"
+    std::filesystem::path fromDirPath = std::filesystem::path(fromFilePathStr).parent_path();
 
-        // debug("scanForCycleEdges2: found hash in path: to=%s parseStorePath=%s toRealPath=%s",
-        //     to,
-        //     store.parseStorePath(to).to_string(),
-        //     std::string(store.toRealPath(store.parseStorePath(to)))
-        // );
+    // src/libstore/include/nix/store/path.hh
+    // StorePath.HashLen
+    constexpr size_t hashLen = 32;
 
-        // to=/nix/store/l6jk0s32idk8pdr5wi0kzj19blvkiyky-cyclic-outputs-dev
-        // parseStorePath=l6jk0s32idk8pdr5wi0kzj19blvkiyky-cyclic-outputs-dev
-        // toRealPath=/nix/store/l6jk0s32idk8pdr5wi0kzj19blvkiyky-cyclic-outputs-dev
+    auto isPathByte = [](unsigned char c) {
+        return c != '\0' &&
+            c != '"'  &&
+            c != '\'' &&
+            c != '<'  &&
+            c != '>'  &&
+            c != '|'  &&
+            c != '\r' &&
+            c != '\n';
+    };
 
-        std::optional<ref<SourceAccessor>> targetAccessor;
+    // loop target paths
+    // NOTE this could be optimized by searching multiple hashes in parallel
+    // but this code almost never runs, so dont optimize
+    for (const auto & [toDrvHash, toDrvStorePath] : hashPathMap) {
+
+        // toDrvPathStr = "/nix/store/hash-name"
+        const std::string toDrvPathStr = store.printStorePath(toDrvStorePath);
+        // debug("scanForCycleEdges2: toDrvPathStr=%s", toDrvPathStr);
+
+        // toDrvBasename = "hash-name"
+        const auto toDrvBasename = std::string(store.parseStorePath(toDrvPathStr).to_string());
+        // debug("scanForCycleEdges2: toDrvPathStr=%s toDrvBasename=%s", toDrvPathStr, toDrvBasename);
+
+        // toDrvBasenameSuffix = "-name"
+        const std::string toDrvBasenameSuffix = toDrvBasename.substr(hashLen);
+
+        std::optional<ref<SourceAccessor>> toDrvAccessor;
         try {
 
             // error: ‘realPathInHost’ was not declared in this scope
@@ -192,76 +197,184 @@ void scanForCycleEdges2(
             // {
             //     return store.toRealPath(store.parseStorePath(p.native()));
             // }
-            // targetAccessor = makeFSSourceAccessor(realPathInHost(to));
+            // toDrvAccessor = makeFSSourceAccessor(realPathInHost(toDrvPathStr));
 
-            // FIXME failed to get targetAccessor: error: opening file "/nix/store/l6jk0s32idk8pdr5wi0kzj19blvkiyky-cyclic-outputs-dev": No such file or directory
+            // FIXME failed to get toDrvAccessor: error: opening file "/nix/store/l6jk0s32idk8pdr5wi0kzj19blvkiyky-cyclic-outputs-dev": No such file or directory
             // quickfix: add chrootPrefix
             // why does makeFSSourceAccessor fail to add chrootPrefix?
-            targetAccessor = makeFSSourceAccessor(
-                // store.toRealPath(store.parseStorePath(to))
-                chrootPrefix + std::string(store.toRealPath(store.parseStorePath(to)))
+            toDrvAccessor = makeFSSourceAccessor(
+                // store.toRealPath(store.parseStorePath(toDrvPathStr))
+                chrootPrefix + std::string(store.toRealPath(store.parseStorePath(toDrvPathStr)))
             );
         }
         catch (std::exception & e) {
-            debug("failed to get targetAccessor: %s", e.what());
+            debug("failed to get toDrvAccessor: %s", e.what());
             throw;
         }
 
-        for (size_t startPos = 0; startPos < content.size(); ++startPos) {
-            // paths start with '/' or '.'
-            if (content[startPos] != '/' && content[startPos] != '.')
-                continue;
-            debug("scanForCycleEdges2: calling findLongestExistingStorePath");
-            auto maybePath = findLongestExistingStorePath(
-                startPos,
-                from,
-                to
-            );
-            if (!maybePath) {
-                debug("scanForCycleEdges2: no targetPath");
-                continue;
-            }
-            const auto & targetPath = *maybePath;
-            debug("scanForCycleEdges2: targetPath=%s", targetPath);
-            // verify this is one of our refs
-            for (auto & [hash, targetStorePath] : hashPathMap) {
-                auto storePath = store.printStorePath(targetStorePath);
-                // debug("scanForCycleEdges2: storePath=%s", storePath);
-                if (!targetPath.starts_with(storePath)) {
-                    // debug("scanForCycleEdges2: targetPath=%s does not start with storePath=%s", targetPath, storePath);
-                    continue;
-                }
-                debug("scanForCycleEdges2: targetPath=%s starts with storePath=%s", targetPath, storePath);
-                // /nix/store/rngknmkywf75sh5i5pwpd66kz59xkx0a-cyclic-outputs.drv.chroot/root/nix/store/nim5yyh540r583888k7fjnmphn5nw3j1-cyclic-outputs-bin/subdir/bin-to-dev-2
-                auto from = accessor.showPath(path);
+        // search in fromFilePathStr and content
+        for (std::string fromData : {fromFilePathStr, fromFileContent}) {
 
-                // remove the chroot prefix path before "/nix/store/"
-                // TODO better?
-                if (chrootPrefixLen > 0 && from.size() >= chrootPrefixLen)
-                    from.erase(0, chrootPrefixLen);
-                    // /nix/store/nim5yyh540r583888k7fjnmphn5nw3j1-cyclic-outputs-bin/subdir/bin-to-dev-2
+            const size_t fromDataSize = fromData.size();
 
-                // deduplicate edges
-                bool isDuplicateEdge = false;
-                for (const auto & otherEdge : edges) {
-                    if (otherEdge.size() != 2) continue;
-                    if (otherEdge[0] != from) continue;
-                    if (otherEdge[1] != targetPath) continue;
-                    isDuplicateEdge = true;
+            size_t toDrvHashPos = 0;
+            size_t toFilePathMatchEnd = 0;
+
+            // loop toDrvHash matches
+            while (true) {
+
+                // search for toDrvHash
+                // start searching at toDrvHashPos
+                toDrvHashPos = fromData.find(toDrvHash, toDrvHashPos);
+                if (toDrvHashPos == std::string::npos) {
+                    // end of file
                     break;
                 }
-                if (isDuplicateEdge) break;
 
+                // found toDrvHash
+                std::string toFilePathStr = "/nix/store/" + toDrvHash;
+                const size_t toDrvHashEnd = toDrvHashPos + hashLen;
+                toFilePathMatchEnd = toDrvHashEnd;
                 debug(
-                    "scanForCycleEdges2: cycle edge:\n"
-                    "  from=%s\n"
-                    "  to=%s",
-                    from,
-                    targetPath);
-                edges.push_back(StoreCycleEdge{from, targetPath});
-                break;
+                    "scanForCycleEdges2: found toDrvHash=%s at toDrvHashPos=%zu in fromFilePathStr=%s",
+                    toDrvHash,
+                    toDrvHashPos,
+                    fromFilePathStr
+                );
+
+                // search for toDrvBasename
+                bool toDrvBasenameFound = true;
+                for (size_t toSuffixIdx = 0; toSuffixIdx < toDrvBasenameSuffix.size(); ++toSuffixIdx) {
+                    size_t fromDataIdx = toFilePathMatchEnd + toSuffixIdx;
+                    if (fromDataIdx >= fromDataSize) {
+                        toDrvBasenameFound = false;
+                        break;
+                    }
+                    if (fromData[fromDataIdx] != toDrvBasenameSuffix[toSuffixIdx]) {
+                        toDrvBasenameFound = false;
+                        break;
+                    }
+                    // partial match of toDrvBasename
+                }
+
+                if (!toDrvBasenameFound) {
+                    // found toDrvHash only
+                    debug("found toDrvHash only: toFilePathStr=%s", nlohmann::json(toFilePathStr).dump());
+                    cycleEdges.push_back(StoreCycleEdge{fromFilePathStr, toFilePathStr});
+
+                    // continue searching after this match
+                    // toDrvHashPos += hashLen;
+                    toDrvHashPos = toFilePathMatchEnd;
+
+                    continue;
+                }
+
+                // found toDrvBasename
+                const size_t toDrvBasenameEnd = toDrvHashEnd + toDrvBasenameSuffix.size();
+                toFilePathMatchEnd = toDrvBasenameEnd;
+                // prepend store dir
+                toFilePathStr = "/nix/store/" + toDrvBasename;
+
+                // search for toFileRelPathStr
+                std::optional<std::string> toFileRelPathStrOpt;
+
+                // seek into fromData, byte by byte
+                // TODO off by one?
+                const size_t toFileRelPathStart = toDrvBasenameEnd;
+
+                // debug("toFileRelPathStart=%d", toFileRelPathStart);
+                // debug("fromData[toFileRelPathStart]=%s", nlohmann::json(std::string(1, fromData[toFileRelPathStart])).dump());
+
+                // relative path must start with '/'
+                if (toFileRelPathStart >= fromDataSize || fromData[toFileRelPathStart] != '/') {
+                    // found toDrvBasename only
+                    debug("not found relative path start. found toDrvBasename only: toFilePathStr=%s", nlohmann::json(toFilePathStr).dump());
+                    cycleEdges.push_back(StoreCycleEdge{fromFilePathStr, toFilePathStr});
+
+                    // continue searching after this match
+                    toDrvHashPos = toDrvBasenameEnd;
+                    continue;
+                }
+
+                for (
+                    // TODO off by one?
+                    // TODO off by two? (we have already consumed the leading '/')
+                    // size_t toFileRelPathEnd = toFileRelPathStart;
+                    size_t toFileRelPathEnd = toFileRelPathStart + 1;
+                    toFileRelPathEnd < fromDataSize;
+                    ++toFileRelPathEnd
+                )
+                {
+                    // debug("toFileRelPathEnd=%d fromData[toFileRelPathEnd]=%s", toFileRelPathEnd, nlohmann::json(std::string(1, fromData[toFileRelPathEnd])).dump());
+
+                    // TODO verify
+                    if (!isPathByte(fromData[toFileRelPathEnd])) break;
+
+                    // TODO off by one?
+                    // const size_t toFileRelPathLen = toFileRelPathEnd - toDrvHashPos + 1;
+                    // std::string toFileRelPathRawStr = fromData.substr(toDrvHashPos, toFileRelPathLen);
+                    const size_t toFileRelPathLen = toFileRelPathEnd - toFileRelPathStart + 1;
+                    std::string toFileRelPathRawStr = fromData.substr(toFileRelPathStart, toFileRelPathLen);
+                    assert(!toFileRelPathRawStr.empty());
+                    // debug("toFileRelPathRawStr=%s", nlohmann::json(toFileRelPathRawStr).dump());
+
+                    // at this point, there is no need to resolve relative paths
+                    // since we have already found toDrvBasename
+                    // so we already are at "/nix/store/hash-name"
+
+                    // no! weakly_canonical has filesystem access
+                    // std::string normalized = std::filesystem::weakly_canonical(joined).string();
+
+                    // lexical normalization without filesystem access
+                    // candidate for toFileRelPathStr
+                    std::string toFileRelPathStrCand = std::filesystem::path(toFileRelPathRawStr).lexically_normal();
+                    // debug("toFileRelPathStrCand=%s", nlohmann::json(toFileRelPathStrCand).dump());
+
+                    // Existence check
+                    if ((**toDrvAccessor).pathExists(CanonPath(toFileRelPathStrCand))) {
+                        toFileRelPathStrOpt = toFileRelPathStrCand;
+                        toFilePathMatchEnd = toFileRelPathEnd;
+                    }
+                }
+
+                if (!toFileRelPathStrOpt) {
+                    // found toDrvBasename only
+                    debug("not found toFileRelPathStr. found toDrvBasename only: toFilePathStr=%s", nlohmann::json(toFilePathStr).dump());
+                    cycleEdges.push_back(StoreCycleEdge{fromFilePathStr, toFilePathStr});
+
+                    // continue searching after this match
+                    toDrvHashPos = toDrvBasenameEnd;
+                    continue;
+                }
+
+                // found toFileRelPathStr
+                // std::string toFilePathStr = "/nix/store/" + toDrvBasename + *toFileRelPathStrOpt;
+                const std::string toFileRelPathStr = *toFileRelPathStrOpt;
+                toFilePathStr = "/nix/store/" + toDrvBasename + toFileRelPathStr;
+                debug("found relative path: toFilePathStr=%s", nlohmann::json(toFilePathStr).dump());
+                cycleEdges.push_back(StoreCycleEdge{fromFilePathStr, toFilePathStr});
+
+                // continue searching after this match
+                toDrvHashPos = toFilePathMatchEnd;
             }
         }
+    }
+
+    if (fromFileInfo.type != SourceAccessor::tDirectory) {
+        return;
+    }
+
+    // recursion
+    // debug("scanForCycleEdges2: fromFileRelPath is a directory: %s", fromFileRelPath);
+    for (const auto & [name, type] : fromDrvAccessor.readDirectory(fromFileRelPath)) {
+        scanForCycleEdges2(
+            store,
+            fromDrvAccessor,
+            chrootPrefixLen,
+            chrootPrefix,
+            fromFileRelPath / name,
+            hashPathMap,
+            cycleEdges);
     }
 }
 
@@ -405,123 +518,6 @@ void transformEdgesToMultiedges(StoreCycleEdgeVec & edges, StoreCycleEdgeVec & m
         multiedges.end());
 
     debug("transformEdgesToMultiedges: result has %lu multiedges", multiedges.size());
-}
-
-std::optional<std::string> findLongestExistingStorePath(
-    SourceAccessor & accessor,
-    const std::string & content,
-    const size_t startPos,
-    const std::string & from,
-    // the "to" derivation's outPath: "/nix/store/hash-name"
-    const std::string & storePathPrefix
-)
-{
-    // FIXME why? in theory, there is no upper bound...
-    constexpr size_t maxPathLen = 4096;
-
-    debug("findLongestExistingStorePath: start=%d: storePathPrefix=%s", startPos, storePathPrefix);
-
-    std::optional<std::string> best;
-
-    size_t end = 0;
-
-    // FIXME can the name ("x") be empty?
-    // relative path: "../hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh-x" // 37 bytes
-    // absolute path: "/nix/store/hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh-x" // 45 bytes
-    const size_t minPathLen = 37;
-
-    for (
-        end = startPos + minPathLen;
-        end < content.size() && end - startPos < maxPathLen;
-        ++end
-    )
-    {
-        unsigned char c = content[end];
-
-        if (c == '\0') {
-            debug("findLongestExistingStorePath: start=%d: end=%d: null byte", startPos, end);
-            break;
-        }
-
-        if (c < 32 && c != '\t' && c != '\n') {
-            debug("findLongestExistingStorePath: start=%d: end=%d: bad char: %c", startPos, end, c);
-            break;
-        }
-
-        std::string raw =
-            content.substr(startPos, end - startPos);
-
-        // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s", startPos, end, nlohmann::json(raw).dump());
-
-        std::filesystem::path fromDir = std::filesystem::path(from).parent_path();
-
-        // resolve relative paths relative to fromDir
-        std::filesystem::path joined = fromDir / raw;
-
-        // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s fromDir=%s joined=%s", startPos, end, nlohmann::json(raw).dump(), std::string(fromDir), std::string(joined));
-
-        // FIXME remove this try block
-        // or break it up in multiple smaller try blocks
-        try {
-
-            auto normalized =
-                std::filesystem::weakly_canonical(joined).string();
-
-            // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s norm=%s", startPos, end, nlohmann::json(raw).dump(), normalized);
-
-            if (normalized.ends_with("/")) {
-                // remove trailing slash
-                normalized = normalized.substr(0, normalized.size() - 1);
-                // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s norm=%s -> removed trailing '/'", startPos, end, nlohmann::json(raw).dump(), normalized);
-            }
-
-            // debug("findLongestExistingStorePath: normalized=%s", normalized);
-
-            // must belong to this output
-            if (!normalized.starts_with(storePathPrefix)) {
-                // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s norm=%s -> wrong prefix", startPos, end, nlohmann::json(raw).dump(), normalized);
-                continue;
-            }
-
-            // convert:
-            // /nix/store/hash-name/foo/bar
-            // ->
-            // /foo/bar
-            std::string rel = normalized.substr(storePathPrefix.size());
-
-            // TODO do we need this at all?
-            // can we just keep an empty rel path?
-            if (rel.empty()) {
-                rel = "/";
-            }
-
-            CanonPath canon(rel);
-
-            if (accessor.pathExists(canon)) {
-                if (!best || normalized.size() > best->size()) {
-                    // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s norm=%s rel=%s -> exists + longer than best", startPos, end, nlohmann::json(raw).dump(), normalized, rel);
-                    debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s rel=%s -> exists + longer than best", startPos, end, nlohmann::json(raw).dump(), rel);
-                    best = normalized;
-                }
-                else {
-                    // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s norm=%s rel=%s -> exists + shorter than best", startPos, end, nlohmann::json(raw).dump(), normalized, rel);
-                    debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s rel=%s -> exists + shorter than best", startPos, end, nlohmann::json(raw).dump(), rel);
-                }
-            }
-            else {
-                // debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s norm=%s rel=%s -> no such file", startPos, end, nlohmann::json(raw).dump(), normalized, rel);
-                debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s rel=%s -> no such file", startPos, end, nlohmann::json(raw).dump(), rel);
-            }
-        }
-        catch (std::exception & e) {
-            // ignore malformed candidates
-            debug("findLongestExistingStorePath: start=%d: end=%d: raw=%s exc=%s -> ignoring malformed candidate", startPos, end, nlohmann::json(raw).dump(), e.what());
-        }
-    }
-
-    debug("findLongestExistingStorePath: start=%d: end=%d: done", startPos, end);
-
-    return best;
 }
 
 bool isCycleError(const BuildError & error)
