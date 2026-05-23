@@ -49,6 +49,7 @@
 
 #include "store-config-private.hh"
 #include "build/derivation-check.hh"
+#include "nix/store/build/find-cycles.hh"
 
 #if NIX_WITH_AWS_AUTH
 #  include "nix/store/aws-creds.hh"
@@ -1585,6 +1586,11 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
 
     StringSet emptySet;
 
+    std::vector<std::string> sortedOutputNames;
+
+    try {
+    // TODO indent...
+
     auto topoSortResult = topoSort(outputsToSort, [&](const std::string & name) -> const StringSet & {
         auto * orifu = get(outputReferencesIfUnregistered, name);
         if (!orifu)
@@ -1604,7 +1610,10 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
             *orifu);
     });
 
+    #if false
     auto sortedOutputNames = std::visit(
+    #endif
+    sortedOutputNames = std::visit(
         overloaded{
             [&](Cycle<std::string> & cycle) -> std::vector<std::string> {
                 // TODO with more -vvvv also show the temporary paths for manual inspection.
@@ -1617,6 +1626,44 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
             },
             [](auto & sorted) { return sorted; }},
         topoSortResult);
+
+    // ...TODO indent
+    } catch (BuildError & e) {
+        debug("cycle detected during topoSort, analyzing for detailed error report");
+        throw getDetailedCycleError({
+            .error = e,
+            .store = store,
+            .referenceablePaths = referenceablePaths,
+            .stageName = "topoSort",
+            .settings = settings,
+            // TODO? restore the simple version
+            // .scanOutputs = [&]() {
+            //     std::vector<std::string> paths;
+            //     for (auto & [outputName, _] : drv.outputs) {
+            //         auto scratchOutput = get(scratchOutputs, outputName);
+            //         if (!scratchOutput)
+            //             continue;
+            //         std::string actualPath = store.printStorePath(*scratchOutput);
+            //         paths.push_back(realPathInHost(actualPath));
+            //     }
+            //     return paths;
+            // },
+            .scanOutputs = [&]() {
+                std::vector<std::vector<std::string>> outputs;
+                for (auto & [outputName, _] : drv.outputs) {
+                    auto scratchOutput = get(scratchOutputs, outputName);
+                    if (!scratchOutput)
+                        continue;
+                    std::string actualPath = store.printStorePath(*scratchOutput);
+                    std::string hostPath = realPathInHost(actualPath);
+                    // TODO use a struct for outputItem?
+                    std::vector<std::string> outputItem = {outputName, actualPath, hostPath};
+                    outputs.push_back(outputItem);
+                }
+                return outputs;
+            },
+        });
+    }
 
     std::reverse(sortedOutputNames.begin(), sortedOutputNames.end());
 
@@ -2000,12 +2047,45 @@ SingleDrvOutputs DerivationBuilderImpl::registerOutputs()
     /* Register each output path as valid, and register the sets of
        paths referenced by each of them.  If there are cycles in the
        outputs, this will fail. */
-    {
+    try {
         ValidPathInfos infos2;
         for (auto & [outputName, newInfo] : infos) {
             infos2.insert_or_assign(newInfo.path, newInfo);
         }
         store.registerValidPaths(infos2);
+    } catch (BuildError & e) {
+        debug("cycle detected during registerValidPaths, analyzing for detailed error report");
+        throw getDetailedCycleError({
+            .error = e,
+            .store = store,
+            .referenceablePaths = referenceablePaths,
+            .stageName = "registerValidPaths",
+            .settings = settings,
+            // TODO? restore the simple version
+            // .scanOutputs = [&]() {
+            //     std::vector<std::string> paths;
+            //     for (auto & [outputName, newInfo] : infos) {
+            //         debug("scanOutputs: outputName=%s", outputName);
+            //         auto actualPath = store.toRealPath(newInfo.path);
+            //         debug("scanOutputs: actualPath=%s", std::string(actualPath));
+            //         paths.push_back(realPathInHost(actualPath));
+            //     }
+            //     return paths;
+            // },
+            .scanOutputs = [&]() {
+                std::vector<std::vector<std::string>> outputs;
+                for (auto & [outputName, newInfo] : infos) {
+                    // debug("scanOutputs: outputName=%s", outputName);
+                    auto actualPath = store.toRealPath(newInfo.path);
+                    // debug("scanOutputs: actualPath=%s", std::string(actualPath));
+                    std::string hostPath = realPathInHost(actualPath);
+                    // TODO use a struct for outputItem?
+                    std::vector<std::string> outputItem = {outputName, actualPath, hostPath};
+                    outputs.push_back(outputItem);
+                }
+                return outputs;
+            },
+        });
     }
 
     /* If we made it this far, we are sure the output matches the

@@ -97,6 +97,11 @@ public:
         return path;
     }
 
+    explicit operator std::filesystem::path() const
+    {
+        return std::filesystem::path(path);
+    }
+
     const std::string & abs() const
     {
         return path;
