@@ -518,6 +518,72 @@ void transformEdgesToMultiedges(StoreCycleEdgeVec & edges, StoreCycleEdgeVec & m
         multiedges.end());
 
     debug("transformEdgesToMultiedges: result has %lu multiedges", multiedges.size());
+
+    // rotate closed cycles
+    // so the file path with the shortest derivation path comes first
+    // usually the first output of a derivation ("out")
+    // has the shortest derivation path
+    // like "/nix/store/hash-name"
+    // and all other outputs ("lib", "dev", ...)
+    // have their output name as a suffix in the derivation path
+    // like "/nix/store/hash-name-output"
+
+    for (auto & path : multiedges) {
+
+        // only rotate closed cycles
+        if (path.size() < 2) continue;
+        if (path.front() != path.back()) continue;
+
+        // ignore duplicated last node while searching
+        size_t cycleLen = path.size() - 1;
+
+        size_t bestIdx = 0;
+        size_t bestDrvLen = std::string::npos;
+
+        for (size_t i = 0; i < cycleLen; ++i) {
+
+            const std::string & filePath = path[i];
+
+            // extract derivation/store path:
+            // /nix/store/hash-name/path/to/file
+            // ->
+            // /nix/store/hash-name
+
+            size_t firstSlash = filePath.find('/', strlen("/nix/store/"));
+
+            std::string drvPath = (
+                (firstSlash == std::string::npos)
+                    ? filePath
+                    : filePath.substr(0, firstSlash)
+            );
+
+            size_t drvLen = drvPath.size();
+
+            if (drvLen < bestDrvLen) {
+                bestDrvLen = drvLen;
+                bestIdx = i;
+            }
+        }
+
+        // already canonical
+        if (bestIdx == 0)
+            continue;
+
+        StoreCycleEdge rotated;
+
+        // preserve direction:
+        // rotate only
+
+        for (size_t i = 0; i < cycleLen; ++i) {
+            rotated.push_back(path[(bestIdx + i) % cycleLen]);
+        }
+
+        // close cycle again
+        rotated.push_back(rotated.front());
+
+        // replace the path
+        path = std::move(rotated);
+    }
 }
 
 bool isCycleError(const BuildError & error)
