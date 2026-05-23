@@ -586,8 +586,9 @@ void transformEdgesToMultiedges(StoreCycleEdgeVec & edges, StoreCycleEdgeVec & m
     }
 }
 
-bool isCycleError(const BuildError & error)
-{
+std::string getErrorMessage(const BaseError & error) {
+    // get the original error message without the "error: " prefix
+    // TODO simplify
     std::string originalMsg;
     try {
         auto &be = dynamic_cast<const BuildError &>(error);
@@ -595,16 +596,26 @@ bool isCycleError(const BuildError & error)
     } catch (...) {
         originalMsg = error.what();
     }
+
+    // remove the "error: " prefix
     for (auto prefix : {
-            ANSI_RED "error:" ANSI_NORMAL " cycle detected in build of",
-            "error: cycle detected in build of"
+            ANSI_RED "error:" ANSI_NORMAL " ",
+            "error: "
         })
     {
         if (originalMsg.starts_with(prefix)) {
-            return true;
+            originalMsg.erase(0, strlen(prefix));
+            break;
         }
     }
-    return false;
+
+    return originalMsg;
+}
+
+bool isCycleError(const BuildError & error)
+{
+    std::string errorMessage = getErrorMessage(error);
+    return errorMessage.starts_with("cycle detected in build of");
 }
 
 BuildError getDetailedCycleError(const CycleErrorContext & ctx)
@@ -673,10 +684,27 @@ BuildError getDetailedCycleError(const CycleErrorContext & ctx)
         );
     }
 
+    // if (true) { // test
     if (edges.empty()) {
+        // this should be unreachable
+        // the first pass found a cycle (topoSort, registerValidPaths)
+        // but the second pass did not find a cycle (getDetailedCycleError)
         debug("no detailed cycle edges found, rethrowing");
-        // TODO modify the error message?
-        return ctx.error;
+        // return ctx.error;
+        // amend the error message
+        std::string originalMsg = getErrorMessage(ctx.error);
+        std::string cycleDetails = (
+            "internal error: "
+            "getDetailedCycleError found no cycle edges. "
+            "this is a bug in nix, please report it."
+        );
+        // FIXME all format string values start with ANSI_WARNING = magenta = pink
+        return BuildError(
+            BuildResult::Failure::OutputRejected,
+            "%s\n\n%s",
+            originalMsg,
+            cycleDetails
+        );
     }
 
     debug("found %lu cycle edges, transforming to connected paths", edges.size());
@@ -686,9 +714,8 @@ BuildError getDetailedCycleError(const CycleErrorContext & ctx)
     transformEdgesToMultiedges(edges, multiedges);
 
     // Build detailed error message
-    // ANSI_NORMAL because i hate pink
     std::string edgesStr = multiedges.size() == 1 ? "edge" : "edges";
-    std::string cycleDetails = fmt(ANSI_NORMAL "Found %d cycle %s:", multiedges.size(), edgesStr);
+    std::string cycleDetails = fmt("Found %d cycle %s:", multiedges.size(), edgesStr);
 
     for (size_t i = 0; i < multiedges.size(); i++) {
         auto & multiedge = multiedges[i];
@@ -718,34 +745,14 @@ BuildError getDetailedCycleError(const CycleErrorContext & ctx)
     }
 
     // Throw new error with original message + cycle details
-    std::string originalMsg;
-    try {
-        auto &be = dynamic_cast<const BuildError &>(ctx.error);
-        originalMsg = be.msg();
-    } catch (...) {
-        originalMsg = ctx.error.what();
-    }
-
-    // dont duplicate the "error: " prefix
-    for (auto prefix : {
-            ANSI_RED "error:" ANSI_NORMAL " ",
-            "error: "
-        })
-    {
-        if (originalMsg.starts_with(prefix)) {
-            originalMsg.erase(0, strlen(prefix));
-            break;
-        }
-    }
-
-    // ANSI_NORMAL because i hate pink
-    originalMsg = ANSI_NORMAL + originalMsg;
+    std::string originalMsg = getErrorMessage(ctx.error);
 
     // repeat the error message
     // so users dont have to scroll up
     // this may be useful if we find many cycles
     cycleDetails += "\n\n" ANSI_RED "error:" ANSI_NORMAL " " + originalMsg;
 
+    // FIXME all format string values start with ANSI_WARNING = magenta = pink
     return BuildError(
         BuildResult::Failure::OutputRejected,
         "%s\n\n%s",
